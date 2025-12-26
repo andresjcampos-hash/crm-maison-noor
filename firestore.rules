@@ -1,0 +1,82 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(uid()));
+    }
+
+    function role() {
+      return userDoc().data.role;
+    }
+
+    function isAdmin() {
+      return signedIn() && role() == "admin";
+    }
+
+    function isSeller() {
+      return signedIn() && (role() == "seller" || role() == "admin");
+    }
+
+    function isOwnerOrAdmin(doc) {
+      return isAdmin() || (isSeller() && doc.data.ownerUserId == uid());
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (isAdmin() || userId == uid());
+      allow create: if isAdmin();
+      allow update: if signedIn() && (isAdmin() || userId == uid());
+      allow delete: if isAdmin();
+    }
+
+    match /leads/{leadId} {
+      allow read: if signedIn() && (isAdmin() || resource.data.ownerUserId == uid());
+      allow create: if isSeller() && request.resource.data.ownerUserId == uid();
+      allow update: if signedIn() && isOwnerOrAdmin(resource);
+      allow delete: if isAdmin();
+    }
+
+    match /interactions/{interactionId} {
+      function lead() {
+        return get(/databases/$(database)/documents/leads/$(request.resource.data.leadId));
+      }
+      allow read: if signedIn();
+      allow create: if signedIn() && (isAdmin() || (isSeller() && lead().data.ownerUserId == uid()));
+      allow update, delete: if isAdmin();
+    }
+
+    match /products/{productId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      function leadFromOrder() {
+        return get(/databases/$(database)/documents/leads/$(resource.data.leadId));
+      }
+      allow read: if signedIn() && (isAdmin() || leadFromOrder().data.ownerUserId == uid());
+
+      allow create: if signedIn() && (
+        isAdmin() ||
+        (isSeller() && get(/databases/$(database)/documents/leads/$(request.resource.data.leadId)).data.ownerUserId == uid())
+      );
+
+      allow update: if signedIn() && (isAdmin() || leadFromOrder().data.ownerUserId == uid());
+      allow delete: if isAdmin();
+    }
+
+    match /tasks/{taskId} {
+      function leadFromTask() {
+        return get(/databases/$(database)/documents/leads/$(resource.data.leadId));
+      }
+
+      allow read: if signedIn() && (isAdmin() || leadFromTask().data.ownerUserId == uid());
+      allow create: if isAdmin();
+      allow update: if signedIn() && (isAdmin() || leadFromTask().data.ownerUserId == uid());
+      allow delete: if isAdmin();
+    }
+  }
+}
