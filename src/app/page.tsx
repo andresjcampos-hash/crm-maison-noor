@@ -39,22 +39,13 @@ export default function HomePage() {
             justifyContent: "center",
           }}
         >
-          <Link className="btn primary" href="/crm/dashboard">
-            Ir para Dashboard
-          </Link>
-
-          <Link className="btn" href="/crm/kanban">
-            Abrir Kanban
-          </Link>
-
-          <Link className="btn" href="/crm/leads">
-            Ver Leads
-          </Link>
+          <Link className="btn primary" href="/crm/dashboard">Ir para Dashboard</Link>
+          <Link className="btn" href="/crm/kanban">Abrir Kanban</Link>
+          <Link className="btn" href="/crm/leads">Ver Leads</Link>
         </div>
 
         <p className="muted" style={{ marginTop: 20, fontSize: 13 }}>
-          Dica: configure o Firebase e crie seu usuário admin em{" "}
-          <code>users/&lt;uid&gt;</code>.
+          Dica: configure o Firebase e crie seu usuário admin em <code>users/&lt;uid&gt;</code>.
         </p>
       </div>
     </main>
