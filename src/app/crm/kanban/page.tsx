@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type Origem = "instagram" | "whatsapp" | "indicacao" | "site" | "outros";
@@ -74,7 +74,35 @@ function writeStorage(leads: Lead[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(leads));
 }
 
+/**
+ * Wrapper com Suspense – isso resolve o erro:
+ * "useSearchParams() should be wrapped in a suspense boundary"
+ */
 export default function KanbanPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="page">
+          <header className="head">
+            <div>
+              <div className="kicker">Maison Noor</div>
+              <h1 className="title">CRM • Kanban</h1>
+              <p className="sub">Carregando quadro de leads...</p>
+            </div>
+          </header>
+        </main>
+      }
+    >
+      <KanbanView />
+    </Suspense>
+  );
+}
+
+/**
+ * Todo o seu Kanban original fica aqui dentro
+ * (agora seguro dentro do Suspense)
+ */
+function KanbanView() {
   const router = useRouter();
   const sp = useSearchParams();
   const spStr = sp.toString(); // dependência estável p/ ler filtros
@@ -419,16 +447,32 @@ export default function KanbanPage() {
 
         <div className="headRight">
           <div className="seg">
-            <button className={`segBtn ${range === "hoje" ? "on" : ""}`} onClick={() => setRangeAndUrl("hoje")} type="button">
+            <button
+              className={`segBtn ${range === "hoje" ? "on" : ""}`}
+              onClick={() => setRangeAndUrl("hoje")}
+              type="button"
+            >
               Hoje
             </button>
-            <button className={`segBtn ${range === "7d" ? "on" : ""}`} onClick={() => setRangeAndUrl("7d")} type="button">
+            <button
+              className={`segBtn ${range === "7d" ? "on" : ""}`}
+              onClick={() => setRangeAndUrl("7d")}
+              type="button"
+            >
               7 dias
             </button>
-            <button className={`segBtn ${range === "30d" ? "on" : ""}`} onClick={() => setRangeAndUrl("30d")} type="button">
+            <button
+              className={`segBtn ${range === "30d" ? "on" : ""}`}
+              onClick={() => setRangeAndUrl("30d")}
+              type="button"
+            >
               30 dias
             </button>
-            <button className={`segBtn ${range === "tudo" ? "on" : ""}`} onClick={() => setRangeAndUrl("tudo")} type="button">
+            <button
+              className={`segBtn ${range === "tudo" ? "on" : ""}`}
+              onClick={() => setRangeAndUrl("tudo")}
+              type="button"
+            >
               Tudo
             </button>
           </div>
