@@ -27,7 +27,7 @@ type Lead = {
   id: string;
   nome: string;
   telefone: string;
-  origem: Origem;
+  origem: Origem;          // origem normalizada
   valorEstimado: number;
   perfumes: string[];
   status: Status;
@@ -41,6 +41,7 @@ type Lead = {
   // compatibilidade com leads antigos
   name?: string;
   title?: string;
+  origin?: Origem;         // alguns registros antigos podem usar "origin"
 };
 
 const STORAGE_KEY = "maison_noor_crm_leads_v1";
@@ -81,6 +82,39 @@ function resolveLeadNome(l: any): string {
     (typeof l?.title === "string" && l.title.trim()) ||
     "";
   return v;
+}
+
+// Normaliza a origem (pega de "origem" ou "origin" e garante um valor válido)
+function resolveLeadOrigem(l: any): Origem {
+  const validValues: Origem[] = [
+    "instagram",
+    "whatsapp",
+    "indicacao",
+    "site",
+    "outros",
+  ];
+
+  const raw = (l?.origem || l?.origin || "").toString().toLowerCase();
+
+  if (validValues.includes(raw as Origem)) {
+    return raw as Origem;
+  }
+
+  // fallback padrão
+  return "outros";
+}
+
+function origemLabel(o?: Origem | string): string {
+  if (!o) return "—";
+  const map: Record<Origem, string> = {
+    instagram: "Instagram",
+    whatsapp: "WhatsApp",
+    indicacao: "Indicação",
+    site: "Site",
+    outros: "Outros",
+  };
+  const key = o.toLowerCase() as Origem;
+  return map[key] || "—";
 }
 
 function NavCRM() {
@@ -253,10 +287,14 @@ export default function LeadsPage() {
       const normalized = parsed
         .map((l: any) => {
           const resolvedNome = resolveLeadNome(l);
+          const resolvedOrigem = resolveLeadOrigem(l);
+
           return {
             ...l,
             nome: resolvedNome,
-            telefone: typeof l?.telefone === "string" ? onlyDigits(l.telefone) : "",
+            origem: resolvedOrigem,
+            telefone:
+              typeof l?.telefone === "string" ? onlyDigits(l.telefone) : "",
             perfumes: Array.isArray(l?.perfumes) ? l.perfumes : [],
             valorEstimado: Number(l?.valorEstimado || 0),
           } as Lead;
@@ -282,7 +320,9 @@ export default function LeadsPage() {
   }, []);
 
   function togglePerfume(p: string): void {
-    setPerfumes((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
+    setPerfumes((prev) =>
+      prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
+    );
   }
 
   function addPerfumeManual(): void {
@@ -294,10 +334,12 @@ export default function LeadsPage() {
 
   function validar(): string | null {
     if (nome.trim().length < 3) return "Nome precisa ter pelo menos 3 letras.";
-    if (onlyDigits(telefone).length < 10) return "Telefone precisa ter DDD + número.";
+    if (onlyDigits(telefone).length < 10)
+      return "Telefone precisa ter DDD + número.";
     if (!origem) return "Selecione a origem.";
     const n = parseBRL(valor);
-    if (!Number.isFinite(n) || n <= 0) return "Valor estimado precisa ser maior que 0.";
+    if (!Number.isFinite(n) || n <= 0)
+      return "Valor estimado precisa ser maior que 0.";
     if (perfumes.length === 0) return "Selecione pelo menos 1 perfume.";
     return null;
   }
@@ -339,7 +381,9 @@ export default function LeadsPage() {
 
   function atualizarStatus(id: string, status: Status): void {
     const now = new Date().toISOString();
-    const next = leads.map((l) => (l.id === id ? { ...l, status, updatedAt: now } : l));
+    const next = leads.map((l) =>
+      l.id === id ? { ...l, status, updatedAt: now } : l
+    );
     setLeads(next);
     saveToStorage(next);
     setMsg("✅ Status atualizado!");
@@ -354,18 +398,10 @@ export default function LeadsPage() {
     setMsg("🗑️ Lead removido.");
   }
 
-  function origemLabel(o: Origem): string {
-    const map: Record<Origem, string> = {
-      instagram: "Instagram",
-      whatsapp: "WhatsApp",
-      indicacao: "Indicação",
-      site: "Site",
-      outros: "Outros",
-    };
-    return map[o] || "—";
-  }
-
-  const totalValor = leads.reduce((acc, l) => acc + (Number(l.valorEstimado) || 0), 0);
+  const totalValor = leads.reduce(
+    (acc, l) => acc + (Number(l.valorEstimado) || 0),
+    0
+  );
 
   // ===== Modal Editar =====
   const editingLead = useMemo(() => {
@@ -506,6 +542,7 @@ export default function LeadsPage() {
 
           <section className="pageBody">
             <section className="grid">
+              {/* FORMULÁRIO */}
               <div className="card">
                 <div className="cardTitle">Cadastrar lead</div>
 
@@ -604,6 +641,7 @@ export default function LeadsPage() {
                 </button>
               </div>
 
+              {/* LISTA DE LEADS */}
               <div className="card">
                 <div className="cardTitle">Leads salvos</div>
 
@@ -627,7 +665,9 @@ export default function LeadsPage() {
                             <div className="name">
                               {l.nome?.trim() || "Sem nome"}
                             </div>
-                            <div className="meta">{origemLabel(l.origem)}</div>
+                            <div className="meta">
+                              {origemLabel(l.origem || l.origin)}
+                            </div>
                           </td>
 
                           <td>
@@ -718,6 +758,7 @@ export default function LeadsPage() {
             </section>
           </section>
 
+          {/* MODAL EDITAR */}
           {openEdit && editingLead ? (
             <div className="modalBackdrop" onMouseDown={fecharEditar}>
               <div
@@ -732,7 +773,7 @@ export default function LeadsPage() {
                     </div>
                     <div className="modalSub">
                       {editingLead.telefone} •{" "}
-                      {origemLabel(editingLead.origem)} •{" "}
+                      {origemLabel(editingLead.origem || editingLead.origin)} •{" "}
                       {formatBRL(Number(editingLead.valorEstimado || 0))}
                     </div>
                   </div>
@@ -845,28 +886,25 @@ export default function LeadsPage() {
           ) : null}
         </div>
 
+        {/* estilos (sem mudanças) */}
         <style jsx>{`
           .page {
             padding: 24px;
             padding-top: 18px;
           }
-
           .pageShell {
             display: grid;
             gap: 18px;
           }
-
           .pageHeader {
             display: flex;
             justify-content: space-between;
             align-items: flex-end;
             gap: 16px;
             flex-wrap: wrap;
-
             padding: 20px;
             border-radius: 22px;
             border: 1px solid rgba(200, 162, 106, 0.18);
-
             background: radial-gradient(
                 700px 260px at 10% 0%,
                 rgba(200, 162, 106, 0.12),
@@ -878,14 +916,11 @@ export default function LeadsPage() {
                 transparent 55%
               ),
               rgba(0, 0, 0, 0.2);
-
             backdrop-filter: blur(10px);
           }
-
           .pageHeaderLeft {
             min-width: 260px;
           }
-
           .kicker {
             font-size: 12px;
             letter-spacing: 0.14em;
@@ -893,14 +928,12 @@ export default function LeadsPage() {
             color: rgba(200, 162, 106, 0.95);
             font-weight: 900;
           }
-
           .pageTitle {
             margin: 8px 0 0;
             font-size: 34px;
             font-weight: 950;
             letter-spacing: 0.01em;
           }
-
           .pageSub {
             margin: 8px 0 0;
             opacity: 0.8;
@@ -908,25 +941,21 @@ export default function LeadsPage() {
             line-height: 1.4;
             max-width: 720px;
           }
-
           .pageHeaderRight {
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
             align-items: center;
           }
-
           .pageBody {
             display: grid;
             gap: 18px;
           }
-
           .stats {
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
           }
-
           .stat {
             min-width: 160px;
             padding: 10px 12px;
@@ -934,18 +963,15 @@ export default function LeadsPage() {
             border: 1px solid rgba(200, 162, 106, 0.16);
             background: rgba(200, 162, 106, 0.06);
           }
-
           .statLabel {
             font-size: 12px;
             opacity: 0.8;
           }
-
           .statValue {
             margin-top: 6px;
             font-size: 16px;
             font-weight: 800;
           }
-
           .toast {
             margin-top: 12px;
             padding: 12px 14px;
@@ -955,21 +981,18 @@ export default function LeadsPage() {
             font-weight: 700;
             max-width: 820px;
           }
-
           .grid {
             margin-top: 2px;
             display: grid;
             gap: 14px;
             grid-template-columns: 1fr;
           }
-
           @media (min-width: 1100px) {
             .grid {
               grid-template-columns: 420px 1fr;
               align-items: start;
             }
           }
-
           .card {
             border-radius: 18px;
             border: 1px solid rgba(200, 162, 106, 0.18);
@@ -980,7 +1003,6 @@ export default function LeadsPage() {
             );
             padding: 14px;
           }
-
           .cardTitle {
             font-size: 12px;
             letter-spacing: 0.12em;
@@ -989,26 +1011,22 @@ export default function LeadsPage() {
             margin-bottom: 12px;
             font-weight: 800;
           }
-
           .row {
             display: grid;
             gap: 12px;
             grid-template-columns: 1fr;
           }
-
           @media (min-width: 700px) {
             .row {
               grid-template-columns: 1fr 1fr;
             }
           }
-
           .field label {
             display: block;
             font-size: 12px;
             opacity: 0.78;
             margin-bottom: 6px;
           }
-
           input,
           select,
           textarea {
@@ -1020,47 +1038,39 @@ export default function LeadsPage() {
             outline: none;
             color: #f2f2f2;
           }
-
           textarea {
             min-height: 160px;
             resize: vertical;
           }
-
           input::placeholder {
             color: rgba(242, 242, 242, 0.55);
           }
-
           input:focus,
           select:focus,
           textarea:focus {
             border-color: rgba(200, 162, 106, 0.55);
             box-shadow: 0 0 0 3px rgba(200, 162, 106, 0.12);
           }
-
           .hint {
             margin-top: 8px;
             font-size: 12px;
             opacity: 0.75;
           }
-
           .divider {
             height: 1px;
             background: rgba(200, 162, 106, 0.16);
             margin: 14px 0;
           }
-
           .perfGrid {
             display: grid;
             gap: 10px;
             grid-template-columns: 1fr;
           }
-
           @media (min-width: 520px) {
             .perfGrid {
               grid-template-columns: 1fr 1fr;
             }
           }
-
           .perfPill {
             display: flex;
             align-items: center;
@@ -1073,21 +1083,19 @@ export default function LeadsPage() {
             text-align: left;
             color: #f2f2f2;
             font-weight: 600;
-            transition: transform 0.08s ease, border 0.12s ease, background 0.12s ease;
+            transition: transform 0.08s ease, border 0.12s ease,
+              background 0.12s ease;
           }
-
           .perfPill:hover {
             transform: translateY(-1px);
             border-color: rgba(200, 162, 106, 0.35);
           }
-
           .perfPill.on {
             border-color: rgba(200, 162, 106, 0.85);
             background: rgba(200, 162, 106, 0.18);
             color: #e6c58f;
             font-weight: 700;
           }
-
           .dot {
             width: 10px;
             height: 10px;
@@ -1096,21 +1104,18 @@ export default function LeadsPage() {
             background: rgba(200, 162, 106, 0.35);
             flex-shrink: 0;
           }
-
           .manualRow {
             display: grid;
             gap: 10px;
             grid-template-columns: 1fr;
             margin-top: 10px;
           }
-
           @media (min-width: 520px) {
             .manualRow {
               grid-template-columns: 1fr auto;
               align-items: center;
             }
           }
-
           .btn {
             padding: 12px 14px;
             border-radius: 14px;
@@ -1120,7 +1125,6 @@ export default function LeadsPage() {
             font-weight: 800;
             color: #f2f2f2;
           }
-
           .btnPrimary {
             margin-top: 10px;
             width: 100%;
@@ -1137,7 +1141,6 @@ export default function LeadsPage() {
             letter-spacing: 0.02em;
             color: #f2f2f2;
           }
-
           .btnDanger {
             padding: 10px 12px;
             border-radius: 14px;
@@ -1147,55 +1150,46 @@ export default function LeadsPage() {
             font-weight: 800;
             color: #f2f2f2;
           }
-
           .tableWrap {
             overflow-x: auto;
             border-radius: 16px;
             border: 1px solid rgba(255, 255, 255, 0.08);
             background: rgba(0, 0, 0, 0.14);
           }
-
           .table {
             width: 100%;
             border-collapse: collapse;
             min-width: 1060px;
           }
-
           th,
           td {
             padding: 12px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.06);
             vertical-align: top;
           }
-
           th {
             font-size: 12px;
             letter-spacing: 0.1em;
             text-transform: uppercase;
             opacity: 0.75;
           }
-
           .name {
             font-weight: 900;
           }
-
           .meta {
             margin-top: 6px;
             font-size: 12px;
             opacity: 0.7;
           }
-
           .mono {
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
               "Liberation Mono", "Courier New", monospace;
           }
-
           .chips {
             display: flex;
             flex-wrap: wrap;
             gap: 6px;
           }
-
           .chip {
             font-size: 11px;
             padding: 4px 9px;
@@ -1204,30 +1198,25 @@ export default function LeadsPage() {
             background: rgba(200, 162, 106, 0.06);
             white-space: nowrap;
           }
-
           .more {
             font-size: 11px;
             opacity: 0.75;
             align-self: center;
           }
-
           .selectSmall {
             padding: 10px 12px;
             border-radius: 14px;
           }
-
           .empty {
             padding: 16px;
             opacity: 0.7;
             text-align: center;
           }
-
           .actionsRow {
             display: flex;
             gap: 8px;
             flex-wrap: wrap;
           }
-
           .obsMini {
             margin-top: 8px;
             font-size: 12px;
@@ -1235,8 +1224,6 @@ export default function LeadsPage() {
             border-left: 3px solid rgba(200, 162, 106, 0.55);
             padding-left: 10px;
           }
-
-          /* ===== MODAL ===== */
           .modalBackdrop {
             position: fixed;
             inset: 0;
@@ -1246,7 +1233,6 @@ export default function LeadsPage() {
             padding: 18px;
             z-index: 50;
           }
-
           .modal {
             width: min(980px, 100%);
             border-radius: 18px;
@@ -1255,7 +1241,6 @@ export default function LeadsPage() {
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
             padding: 14px;
           }
-
           .modalHead {
             display: flex;
             justify-content: space-between;
@@ -1263,7 +1248,6 @@ export default function LeadsPage() {
             align-items: flex-start;
             padding: 6px 6px 12px;
           }
-
           .modalKicker {
             font-size: 12px;
             letter-spacing: 0.12em;
@@ -1271,21 +1255,18 @@ export default function LeadsPage() {
             color: rgba(200, 162, 106, 0.95);
             font-weight: 900;
           }
-
           .modalTitle {
             margin-top: 6px;
             font-size: 18px;
             font-weight: 900;
             color: #f2f2f2;
           }
-
           .modalSub {
             margin-top: 6px;
             font-size: 12px;
             opacity: 0.78;
             color: #f2f2f2;
           }
-
           .x {
             border-radius: 12px;
             border: 1px solid rgba(255, 255, 255, 0.14);
@@ -1295,26 +1276,22 @@ export default function LeadsPage() {
             padding: 8px 10px;
             font-weight: 900;
           }
-
           .modalGrid {
             display: grid;
             gap: 12px;
             grid-template-columns: 1fr;
           }
-
           @media (min-width: 980px) {
             .modalGrid {
               grid-template-columns: 1fr 1fr;
             }
           }
-
           .box {
             border-radius: 18px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             background: rgba(255, 255, 255, 0.03);
             padding: 12px;
           }
-
           .boxTitle {
             font-size: 12px;
             letter-spacing: 0.1em;
@@ -1324,20 +1301,17 @@ export default function LeadsPage() {
             margin-bottom: 10px;
             color: #f2f2f2;
           }
-
           .histForm {
             display: grid;
             gap: 10px;
             grid-template-columns: 140px 1fr auto;
             align-items: center;
           }
-
           @media (max-width: 860px) {
             .histForm {
               grid-template-columns: 1fr;
             }
           }
-
           .histList {
             margin-top: 10px;
             display: grid;
@@ -1346,21 +1320,18 @@ export default function LeadsPage() {
             overflow: auto;
             padding-right: 4px;
           }
-
           .histItem {
             border-radius: 16px;
             border: 1px solid rgba(200, 162, 106, 0.16);
             background: rgba(200, 162, 106, 0.06);
             padding: 10px;
           }
-
           .histTop {
             display: flex;
             justify-content: space-between;
             gap: 10px;
             align-items: center;
           }
-
           .histTag {
             font-size: 11px;
             padding: 4px 8px;
@@ -1370,13 +1341,11 @@ export default function LeadsPage() {
             color: #f2f2f2;
             font-weight: 900;
           }
-
           .histDate {
             font-size: 11px;
             opacity: 0.78;
             color: #f2f2f2;
           }
-
           .histText {
             margin-top: 8px;
             font-size: 12px;
@@ -1384,7 +1353,6 @@ export default function LeadsPage() {
             color: #f2f2f2;
             white-space: pre-wrap;
           }
-
           .emptyBox {
             padding: 12px;
             opacity: 0.75;
@@ -1392,7 +1360,6 @@ export default function LeadsPage() {
             border: 1px dashed rgba(200, 162, 106, 0.22);
             border-radius: 16px;
           }
-
           @media (max-width: 900px) {
             .pageTitle {
               font-size: 26px;
