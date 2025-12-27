@@ -39,31 +39,32 @@ export default function HomePage() {
             justifyContent: "center",
           }}
         >
-          <Link className="btn primary" href="/crm/dashboard">
+          {/** 👉 Todos agora levam ao LOGIN */}
+          <Link className="btn primary" href="/login">
             Ir para Dashboard
           </Link>
 
-          <Link className="btn" href="/crm/kanban">
+          <Link className="btn" href="/login">
             Abrir Kanban
           </Link>
 
-          <Link className="btn" href="/crm/leads">
+          <Link className="btn" href="/login">
             Ver Leads
           </Link>
 
-          <Link className="btn" href="/crm/pedidos">
+          <Link className="btn" href="/login">
             Ver Pedidos
           </Link>
 
-          <Link className="btn" href="/crm/financeiro">
+          <Link className="btn" href="/login">
             Financeiro
           </Link>
 
-          <Link className="btn" href="/crm/produtos">
+          <Link className="btn" href="/login">
             Produtos
           </Link>
 
-          <Link className="btn" href="/crm/tarefas">
+          <Link className="btn" href="/login">
             Tarefas
           </Link>
         </div>
