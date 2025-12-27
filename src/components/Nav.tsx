@@ -2,7 +2,9 @@
 
 import React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { signOut } from "firebase/auth";
+import { auth } from "@/lib/firebaseClient";
 
 type NavLink = {
   href: string;
@@ -77,7 +79,7 @@ const links: NavLink[] = [
   { href: "/crm/kanban", label: "Kanban", icon: <IconKanban /> },
   { href: "/crm/pedidos", label: "Pedidos", icon: <IconPedidos /> },
 
-  // 👉 Novo item Financeiro
+  // 👉 Financeiro
   { href: "/crm/financeiro", label: "Financeiro", icon: <IconFinanceiro /> },
 
   { href: "/crm/produtos", label: "Produtos", icon: <IconProdutos /> },
@@ -85,11 +87,20 @@ const links: NavLink[] = [
 
 export default function Nav() {
   const pathname = usePathname();
+  const router = useRouter();
 
   function isActive(href: string) {
     if (!pathname) return false;
     if (href === "/crm/dashboard") return pathname === "/crm/dashboard";
     return pathname.startsWith(href);
+  }
+
+  async function handleLogout() {
+    try {
+      await signOut(auth);
+    } finally {
+      router.replace("/login");
+    }
   }
 
   return (
@@ -119,6 +130,15 @@ export default function Nav() {
           );
         })}
       </div>
+
+      {/* Botão de sair */}
+      <button
+        type="button"
+        className="logoutButton"
+        onClick={handleLogout}
+      >
+        Sair
+      </button>
 
       <style jsx>{`
         .nav {
@@ -224,6 +244,46 @@ export default function Nav() {
           color: rgba(200, 162, 106, 0.98);
         }
 
+        .logoutButton {
+          margin-top: 14px;
+          width: 100%;
+          padding: 9px 12px;
+          border-radius: 999px;
+          border: 1px solid rgba(200, 162, 106, 0.4);
+          background: rgba(200, 162, 106, 0.14);
+          color: rgba(255, 220, 170, 0.98);
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          cursor: pointer;
+          text-align: center;
+          transition:
+            background 0.16s ease,
+            border-color 0.16s ease,
+            transform 0.1s ease,
+            box-shadow 0.16s ease,
+            opacity 0.12s ease;
+        }
+
+        .logoutButton:hover {
+          background: rgba(200, 162, 106, 0.28);
+          border-color: rgba(200, 162, 106, 0.8);
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+          transform: translateY(-1px);
+        }
+
+        .logoutButton:active {
+          transform: translateY(0);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+
+        .logoutButton:disabled {
+          opacity: 0.6;
+          cursor: default;
+          box-shadow: none;
+        }
+
         /* Mobile: compacto */
         @media (max-width: 900px) {
           .sectionTitle {
@@ -249,6 +309,9 @@ export default function Nav() {
           }
           .label {
             font-size: 14px;
+          }
+          .logoutButton {
+            margin-top: 10px;
           }
         }
       `}</style>

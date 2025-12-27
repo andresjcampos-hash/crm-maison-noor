@@ -38,8 +38,7 @@ type Lead = {
   observacoes?: string;
   historico?: HistoricoItem[];
 
-  // ✅ compatibilidade (caso existam leads antigos salvos com outros nomes)
-  // (não precisa usar no app, só pra leitura segura do storage)
+  // compatibilidade com leads antigos
   name?: string;
   title?: string;
 };
@@ -64,15 +63,17 @@ const HIST_TIPOS: { v: HistoricoTipo; label: string }[] = [
   { v: "envio", label: "Envio" },
 ];
 
-// ✅ Fallback p/ browsers sem crypto.randomUUID
-function uid() {
+// Fallback p/ browsers sem crypto.randomUUID
+function uid(): string {
   // @ts-ignore
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    // @ts-ignore
     return crypto.randomUUID();
+  }
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-// ✅ Resolve "nome sumindo" se leads antigos estiverem como name/title
+// Resolve nome se estiver salvo como name/title em leads antigos
 function resolveLeadNome(l: any): string {
   const v =
     (typeof l?.nome === "string" && l.nome.trim()) ||
@@ -220,11 +221,11 @@ export default function LeadsPage() {
   const [histTipo, setHistTipo] = useState<HistoricoTipo>("msg");
   const [histTexto, setHistTexto] = useState("");
 
-  function onlyDigits(v: string) {
+  function onlyDigits(v: string): string {
     return v.replace(/\D/g, "");
   }
 
-  function parseBRL(v: string) {
+  function parseBRL(v: string): number {
     const cleaned = v
       .trim()
       .replace(/[R$\s]/g, "")
@@ -235,18 +236,20 @@ export default function LeadsPage() {
     return Number.isFinite(n) ? n : NaN;
   }
 
-  function formatBRL(n: number) {
-    return Number(n).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  function formatBRL(n: number): string {
+    return Number(n || 0).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
   }
 
-  function loadFromStorage() {
+  function loadFromStorage(): Lead[] {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
 
-      // ✅ Normaliza: garante `nome` preenchido, mesmo se dados antigos estiverem como `name/title`
       const normalized = parsed
         .map((l: any) => {
           const resolvedNome = resolveLeadNome(l);
@@ -258,7 +261,6 @@ export default function LeadsPage() {
             valorEstimado: Number(l?.valorEstimado || 0),
           } as Lead;
         })
-        // opcional: remove itens totalmente inválidos
         .filter((l: any) => l && typeof l.id === "string" && l.id);
 
       return normalized as Lead[];
@@ -267,7 +269,7 @@ export default function LeadsPage() {
     }
   }
 
-  function saveToStorage(next: Lead[]) {
+  function saveToStorage(next: Lead[]): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   }
 
@@ -275,23 +277,22 @@ export default function LeadsPage() {
     const loaded = loadFromStorage();
     setLeads(loaded);
 
-    // ✅ regrava já normalizado (uma vez) para nunca mais sumir nome
     if (loaded.length) saveToStorage(loaded);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function togglePerfume(p: string) {
+  function togglePerfume(p: string): void {
     setPerfumes((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
   }
 
-  function addPerfumeManual() {
+  function addPerfumeManual(): void {
     const p = novoPerfume.trim();
     if (!p) return;
     if (!perfumes.includes(p)) setPerfumes((prev) => [p, ...prev]);
     setNovoPerfume("");
   }
 
-  function validar() {
+  function validar(): string | null {
     if (nome.trim().length < 3) return "Nome precisa ter pelo menos 3 letras.";
     if (onlyDigits(telefone).length < 10) return "Telefone precisa ter DDD + número.";
     if (!origem) return "Selecione a origem.";
@@ -301,9 +302,12 @@ export default function LeadsPage() {
     return null;
   }
 
-  function salvar() {
+  function salvar(): void {
     const err = validar();
-    if (err) return setMsg(err);
+    if (err) {
+      setMsg(err);
+      return;
+    }
 
     const valorN = parseBRL(valor);
     const now = new Date().toISOString();
@@ -333,7 +337,7 @@ export default function LeadsPage() {
     setNovoPerfume("");
   }
 
-  function atualizarStatus(id: string, status: Status) {
+  function atualizarStatus(id: string, status: Status): void {
     const now = new Date().toISOString();
     const next = leads.map((l) => (l.id === id ? { ...l, status, updatedAt: now } : l));
     setLeads(next);
@@ -341,7 +345,7 @@ export default function LeadsPage() {
     setMsg("✅ Status atualizado!");
   }
 
-  function excluir(id: string) {
+  function excluir(id: string): void {
     const ok = window.confirm("Excluir este lead? (não dá para desfazer)");
     if (!ok) return;
     const next = leads.filter((l) => l.id !== id);
@@ -350,7 +354,7 @@ export default function LeadsPage() {
     setMsg("🗑️ Lead removido.");
   }
 
-  function origemLabel(o: Origem) {
+  function origemLabel(o: Origem): string {
     const map: Record<Origem, string> = {
       instagram: "Instagram",
       whatsapp: "WhatsApp",
@@ -369,7 +373,7 @@ export default function LeadsPage() {
     return leads.find((l) => l.id === editingId) || null;
   }, [editingId, leads]);
 
-  function abrirEditar(lead: Lead) {
+  function abrirEditar(lead: Lead): void {
     setEditingId(lead.id);
     setObsEdit(lead.observacoes || "");
     setHistTipo("msg");
@@ -377,14 +381,14 @@ export default function LeadsPage() {
     setOpenEdit(true);
   }
 
-  function fecharEditar() {
+  function fecharEditar(): void {
     setOpenEdit(false);
     setEditingId(null);
     setObsEdit("");
     setHistTexto("");
   }
 
-  function salvarObservacoes() {
+  function salvarObservacoes(): void {
     if (!editingLead) return;
     const now = new Date().toISOString();
     const next = leads.map((l) =>
@@ -395,10 +399,13 @@ export default function LeadsPage() {
     setMsg("✅ Observações salvas!");
   }
 
-  function addHistorico() {
+  function addHistorico(): void {
     if (!editingLead) return;
     const texto = histTexto.trim();
-    if (!texto) return setMsg("⚠️ Escreva o texto do histórico.");
+    if (!texto) {
+      setMsg("⚠️ Escreva o texto do histórico.");
+      return;
+    }
 
     const item: HistoricoItem = {
       id: uid(),
@@ -410,7 +417,7 @@ export default function LeadsPage() {
     const historicoAtual = editingLead.historico || [];
     const novoHistorico = [...historicoAtual, item];
 
-    // 🔥 Automação de status
+    // Automação de status
     let novoStatus: Status | undefined;
     if (histTipo === "pagamento") novoStatus = "pagou";
     if (histTipo === "envio") novoStatus = "enviado";
@@ -440,7 +447,7 @@ export default function LeadsPage() {
     );
   }
 
-  function removerHistorico(itemId: string) {
+  function removerHistorico(itemId: string): void {
     if (!editingLead) return;
     const now = new Date().toISOString();
     const hist = (editingLead.historico || []).filter((h) => h.id !== itemId);
@@ -454,7 +461,7 @@ export default function LeadsPage() {
     setMsg("🗑️ Histórico removido.");
   }
 
-  // ✅ Esc fecha modal
+  // Esc fecha modal
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") fecharEditar();
@@ -462,7 +469,7 @@ export default function LeadsPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openEdit]);
+  }, []);
 
   return (
     <>
@@ -487,7 +494,9 @@ export default function LeadsPage() {
                 </div>
                 <div className="stat">
                   <div className="statLabel">Valor estimado</div>
-                  <div className="statValue">{leads.length ? formatBRL(totalValor) : "—"}</div>
+                  <div className="statValue">
+                    {leads.length ? formatBRL(totalValor) : "—"}
+                  </div>
                 </div>
               </div>
             </div>
@@ -522,7 +531,10 @@ export default function LeadsPage() {
                 <div className="row">
                   <div className="field">
                     <label>Origem *</label>
-                    <select value={origem} onChange={(e) => setOrigem(e.target.value as Origem)}>
+                    <select
+                      value={origem}
+                      onChange={(e) => setOrigem(e.target.value as Origem)}
+                    >
                       <option value="">Selecione...</option>
                       <option value="instagram">Instagram</option>
                       <option value="whatsapp">WhatsApp</option>
@@ -534,7 +546,11 @@ export default function LeadsPage() {
 
                   <div className="field">
                     <label>Valor estimado (R$) *</label>
-                    <input value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Ex: 389,90" />
+                    <input
+                      value={valor}
+                      onChange={(e) => setValor(e.target.value)}
+                      placeholder="Ex: 389,90"
+                    />
                     <div className="hint">Pode usar vírgula ou ponto.</div>
                   </div>
                 </div>
@@ -568,17 +584,22 @@ export default function LeadsPage() {
                       onChange={(e) => setNovoPerfume(e.target.value)}
                       placeholder="Adicionar perfume manual..."
                     />
-                    <button type="button" className="btn" onClick={addPerfumeManual}>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={addPerfumeManual}
+                    >
                       Adicionar
                     </button>
                   </div>
 
                   <div className="hint">
-                    <strong>Selecionados:</strong> {perfumes.length ? perfumes.join(" • ") : "—"}
+                    <strong>Selecionados:</strong>{" "}
+                    {perfumes.length ? perfumes.join(" • ") : "—"}
                   </div>
                 </div>
 
-                <button className="btnPrimary" onClick={salvar}>
+                <button className="btnPrimary" onClick={salvar} type="button">
                   Salvar lead
                 </button>
               </div>
@@ -603,14 +624,19 @@ export default function LeadsPage() {
                       {leads.map((l) => (
                         <tr key={l.id}>
                           <td>
-                            <div className="name">{l.nome?.trim() || "Sem nome"}</div>
+                            <div className="name">
+                              {l.nome?.trim() || "Sem nome"}
+                            </div>
                             <div className="meta">{origemLabel(l.origem)}</div>
                           </td>
 
                           <td>
                             <div className="mono">{l.telefone}</div>
                             <div className="meta">
-                              Atualizado: {new Date(l.updatedAt || l.createdAt).toLocaleString("pt-BR")}
+                              Atualizado:{" "}
+                              {new Date(
+                                l.updatedAt || l.createdAt
+                              ).toLocaleString("pt-BR")}
                             </div>
                           </td>
 
@@ -622,21 +648,32 @@ export default function LeadsPage() {
                                 </span>
                               ))}
                               {l.perfumes.length > 4 ? (
-                                <span className="more">+{l.perfumes.length - 4}</span>
+                                <span className="more">
+                                  +{l.perfumes.length - 4}
+                                </span>
                               ) : null}
                             </div>
                             {l.observacoes ? (
-                              <div className="obsMini">📝 {l.observacoes.slice(0, 40)}…</div>
+                              <div className="obsMini">
+                                📝 {l.observacoes.slice(0, 40)}…
+                              </div>
                             ) : null}
                           </td>
 
-                          <td className="mono">{formatBRL(Number(l.valorEstimado || 0))}</td>
+                          <td className="mono">
+                            {formatBRL(Number(l.valorEstimado || 0))}
+                          </td>
 
                           <td>
                             <select
                               className="selectSmall"
                               value={l.status}
-                              onChange={(e) => atualizarStatus(l.id, e.target.value as Status)}
+                              onChange={(e) =>
+                                atualizarStatus(
+                                  l.id,
+                                  e.target.value as Status
+                                )
+                              }
                             >
                               {STATUS_OPTIONS.map((s) => (
                                 <option key={s.v} value={s.v}>
@@ -648,10 +685,18 @@ export default function LeadsPage() {
 
                           <td>
                             <div className="actionsRow">
-                              <button className="btn" type="button" onClick={() => abrirEditar(l)}>
+                              <button
+                                className="btn"
+                                type="button"
+                                onClick={() => abrirEditar(l)}
+                              >
                                 Editar
                               </button>
-                              <button className="btnDanger" onClick={() => excluir(l.id)} type="button">
+                              <button
+                                className="btnDanger"
+                                onClick={() => excluir(l.id)}
+                                type="button"
+                              >
                                 Excluir
                               </button>
                             </div>
@@ -675,18 +720,29 @@ export default function LeadsPage() {
 
           {openEdit && editingLead ? (
             <div className="modalBackdrop" onMouseDown={fecharEditar}>
-              <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+              <div
+                className="modal"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
                 <div className="modalHead">
                   <div>
                     <div className="modalKicker">Editar lead</div>
-                    <div className="modalTitle">{editingLead.nome?.trim() || "Sem nome"}</div>
+                    <div className="modalTitle">
+                      {editingLead.nome?.trim() || "Sem nome"}
+                    </div>
                     <div className="modalSub">
-                      {editingLead.telefone} • {origemLabel(editingLead.origem)} •{" "}
+                      {editingLead.telefone} •{" "}
+                      {origemLabel(editingLead.origem)} •{" "}
                       {formatBRL(Number(editingLead.valorEstimado || 0))}
                     </div>
                   </div>
 
-                  <button className="x" onClick={fecharEditar} type="button" aria-label="Fechar modal">
+                  <button
+                    className="x"
+                    onClick={fecharEditar}
+                    type="button"
+                    aria-label="Fechar modal"
+                  >
                     ✕
                   </button>
                 </div>
@@ -699,7 +755,11 @@ export default function LeadsPage() {
                       onChange={(e) => setObsEdit(e.target.value)}
                       placeholder="Ex: quer Afeef e Asad Elixir, pediu desconto no Pix..."
                     />
-                    <button className="btnPrimary" onClick={salvarObservacoes} type="button">
+                    <button
+                      className="btnPrimary"
+                      onClick={salvarObservacoes}
+                      type="button"
+                    >
                       Salvar observações
                     </button>
                   </div>
@@ -708,7 +768,12 @@ export default function LeadsPage() {
                     <div className="boxTitle">Histórico</div>
 
                     <div className="histForm">
-                      <select value={histTipo} onChange={(e) => setHistTipo(e.target.value as HistoricoTipo)}>
+                      <select
+                        value={histTipo}
+                        onChange={(e) =>
+                          setHistTipo(e.target.value as HistoricoTipo)
+                        }
+                      >
                         {HIST_TIPOS.map((t) => (
                           <option key={t.v} value={t.v}>
                             {t.label}
@@ -722,7 +787,11 @@ export default function LeadsPage() {
                         placeholder="Ex: Enviei catálogo / confirmou pagamento / postei no correio..."
                       />
 
-                      <button className="btn" onClick={addHistorico} type="button">
+                      <button
+                        className="btn"
+                        onClick={addHistorico}
+                        type="button"
+                      >
                         Adicionar
                       </button>
                     </div>
@@ -730,29 +799,43 @@ export default function LeadsPage() {
                     <div className="histList">
                       {(editingLead.historico || [])
                         .slice()
-                        .sort((a, b) => (b.data || "").localeCompare(a.data || ""))
+                        .sort((a, b) =>
+                          (b.data || "").localeCompare(a.data || "")
+                        )
                         .map((h) => (
                           <div key={h.id} className="histItem">
                             <div className="histTop">
                               <span className="histTag">
-                                {HIST_TIPOS.find((x) => x.v === h.tipo)?.label || h.tipo}
+                                {
+                                  HIST_TIPOS.find((x) => x.v === h.tipo)
+                                    ?.label || h.tipo
+                                }
                               </span>
-                              <span className="histDate">{new Date(h.data).toLocaleString("pt-BR")}</span>
+                              <span className="histDate">
+                                {new Date(h.data).toLocaleString("pt-BR")}
+                              </span>
                             </div>
                             <div className="histText">{h.texto}</div>
-                            <button className="btnDanger" onClick={() => removerHistorico(h.id)} type="button">
+                            <button
+                              className="btnDanger"
+                              onClick={() => removerHistorico(h.id)}
+                              type="button"
+                            >
                               Remover
                             </button>
                           </div>
                         ))}
 
                       {(editingLead.historico || []).length === 0 ? (
-                        <div className="emptyBox">Nenhum histórico ainda. Adicione o primeiro registro.</div>
+                        <div className="emptyBox">
+                          Nenhum histórico ainda. Adicione o primeiro registro.
+                        </div>
                       ) : null}
                     </div>
 
                     <div className="hint">
-                      * Se você escolher <strong>Pagamento</strong> o status vira <strong>Pagou</strong>. Se escolher{" "}
+                      * Se você escolher <strong>Pagamento</strong> o status
+                      vira <strong>Pagou</strong>. Se escolher{" "}
                       <strong>Envio</strong> vira <strong>Enviado</strong>.
                     </div>
                   </div>
@@ -763,7 +846,6 @@ export default function LeadsPage() {
         </div>
 
         <style jsx>{`
-          /* Base da página (mantém respiro sob navbar sticky) */
           .page {
             padding: 24px;
             padding-top: 18px;
@@ -785,8 +867,16 @@ export default function LeadsPage() {
             border-radius: 22px;
             border: 1px solid rgba(200, 162, 106, 0.18);
 
-            background: radial-gradient(700px 260px at 10% 0%, rgba(200, 162, 106, 0.12), transparent 55%),
-              radial-gradient(520px 240px at 90% 20%, rgba(200, 162, 106, 0.08), transparent 55%),
+            background: radial-gradient(
+                700px 260px at 10% 0%,
+                rgba(200, 162, 106, 0.12),
+                transparent 55%
+              ),
+              radial-gradient(
+                520px 240px at 90% 20%,
+                rgba(200, 162, 106, 0.08),
+                transparent 55%
+              ),
               rgba(0, 0, 0, 0.2);
 
             backdrop-filter: blur(10px);
@@ -883,7 +973,11 @@ export default function LeadsPage() {
           .card {
             border-radius: 18px;
             border: 1px solid rgba(200, 162, 106, 0.18);
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+            background: linear-gradient(
+              180deg,
+              rgba(255, 255, 255, 0.03),
+              rgba(255, 255, 255, 0.01)
+            );
             padding: 14px;
           }
 
@@ -1033,7 +1127,11 @@ export default function LeadsPage() {
             padding: 12px 14px;
             border-radius: 14px;
             border: 1px solid rgba(200, 162, 106, 0.4);
-            background: linear-gradient(180deg, rgba(200, 162, 106, 0.18), rgba(200, 162, 106, 0.08));
+            background: linear-gradient(
+              180deg,
+              rgba(200, 162, 106, 0.18),
+              rgba(200, 162, 106, 0.08)
+            );
             cursor: pointer;
             font-weight: 900;
             letter-spacing: 0.02em;
@@ -1088,8 +1186,8 @@ export default function LeadsPage() {
           }
 
           .mono {
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
-              monospace;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+              "Liberation Mono", "Courier New", monospace;
           }
 
           .chips {

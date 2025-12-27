@@ -12,8 +12,8 @@ type Produto = {
   categoria?: Categoria;
   precoCompra?: number;
   precoVenda?: number;
-  estoque?: number;      // estoque físico
-  reservado?: number;    // reservado para pedidos (ainda não faturados)
+  estoque?: number; // estoque físico
+  reservado?: number; // reservado para pedidos (ainda não faturados)
   ativo?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -22,22 +22,22 @@ type Produto = {
 
 const STORAGE_KEY = "maison_noor_crm_produtos_v1";
 
-function nowISO() {
+function nowISO(): string {
   return new Date().toISOString();
 }
 
-function uid() {
+function uid(): string {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-function formatBRL(n: number) {
+function formatBRL(n: number): string {
   return Number(n || 0).toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
   });
 }
 
-function canUseStorage() {
+function canUseStorage(): boolean {
   return typeof window !== "undefined" && typeof localStorage !== "undefined";
 }
 
@@ -53,12 +53,12 @@ function readStorage(): Produto[] {
   }
 }
 
-function writeStorage(items: Produto[]) {
+function writeStorage(items: Produto[]): void {
   if (!canUseStorage()) return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
 }
 
-function norm(s: string) {
+function norm(s: string): string {
   return String(s || "")
     .trim()
     .toLowerCase()
@@ -76,9 +76,9 @@ export default function ProdutosPage() {
   const [cat, setCat] = useState<"todas" | Categoria>("todas");
   const [onlyActive, setOnlyActive] = useState(true);
   const [onlySemEstoque, setOnlySemEstoque] = useState(false);
-  const [sortBy, setSortBy] = useState<"recentes" | "nome" | "estoque" | "preco">(
-    "recentes"
-  );
+  const [sortBy, setSortBy] = useState<
+    "recentes" | "nome" | "estoque" | "preco"
+  >("recentes");
 
   // modal
   const [openId, setOpenId] = useState<string | null>(null);
@@ -105,17 +105,19 @@ export default function ProdutosPage() {
     setItems(readStorage());
   }, []);
 
-  function showToast(msg: string, ms = 1600) {
+  function showToast(msg: string, ms = 1600): void {
     setToast(msg);
-    window.setTimeout(() => setToast(""), ms);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => setToast(""), ms);
+    }
   }
 
-  function refresh() {
+  function refresh(): void {
     setItems(readStorage());
     showToast("🔄 Atualizado!");
   }
 
-  function openNew() {
+  function openNew(): void {
     setOpenId("NEW");
     setFNome("");
     setFMarca("");
@@ -128,7 +130,7 @@ export default function ProdutosPage() {
     setFObs("");
   }
 
-  function openEdit(id: string) {
+  function openEdit(id: string): void {
     const p = items.find((x) => x.id === id);
     if (!p) return;
     setOpenId(id);
@@ -144,16 +146,16 @@ export default function ProdutosPage() {
     setFObs(p.observacoes || "");
   }
 
-  function closeModal() {
+  function closeModal(): void {
     setOpenId(null);
   }
 
-  function toNum(v: string) {
+  function toNum(v: string): number {
     const n = Number(String(v || "").replace(",", "."));
     return Number.isFinite(n) ? n : 0;
   }
 
-  function dedupeName(nome: string, exceptId?: string) {
+  function dedupeName(nome: string, exceptId?: string): string {
     const base = nome.trim();
     const baseNorm = norm(base);
     const existing = items
@@ -166,7 +168,7 @@ export default function ProdutosPage() {
     return `${base} (${i})`;
   }
 
-  function save() {
+  function save(): void {
     const nomeRaw = fNome.trim();
     if (!nomeRaw) {
       showToast("⚠️ Informe o nome do produto.");
@@ -222,9 +224,12 @@ export default function ProdutosPage() {
     closeModal();
   }
 
-  function remove() {
+  function remove(): void {
     if (!openItem) return;
-    const ok = window.confirm(`Excluir "${openItem.nome}"? (não dá para desfazer)`);
+    const ok =
+      typeof window === "undefined"
+        ? true
+        : window.confirm(`Excluir "${openItem.nome}"? (não dá para desfazer)`);
     if (!ok) return;
 
     setItems((prev) => {
@@ -237,7 +242,7 @@ export default function ProdutosPage() {
     closeModal();
   }
 
-  function duplicateProduct(id: string) {
+  function duplicateProduct(id: string): void {
     const p = items.find((x) => x.id === id);
     if (!p) return;
 
@@ -256,7 +261,7 @@ export default function ProdutosPage() {
     showToast("📌 Produto duplicado!");
   }
 
-  function adjustEstoque(id: string, delta: number) {
+  function adjustEstoque(id: string, delta: number): void {
     setItems((prev) => {
       const next = prev.map((p) => {
         if (p.id !== id) return p;
@@ -269,7 +274,7 @@ export default function ProdutosPage() {
     });
   }
 
-  function toggleActive(id: string) {
+  function toggleActive(id: string): void {
     setItems((prev) => {
       const next = prev.map((p) => {
         if (p.id !== id) return p;
@@ -281,7 +286,7 @@ export default function ProdutosPage() {
   }
 
   // export json
-  function exportJSON() {
+  function exportJSON(): void {
     const data = JSON.stringify(items, null, 2);
     const blob = new Blob([data], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -298,7 +303,7 @@ export default function ProdutosPage() {
   }
 
   // import json
-  function importJSON(file: File) {
+  function importJSON(file: File): void {
     const reader = new FileReader();
     reader.onload = () => {
       try {
@@ -333,20 +338,22 @@ export default function ProdutosPage() {
           }))
           .filter((p) => p.nome);
 
+        // usa o storage atual, não só o "items" do closure
+        const current = readStorage();
         const map = new Map<string, Produto>();
-        for (const p of items) map.set(p.id, p);
+        for (const p of current) map.set(p.id, p);
 
         for (const p of incoming) {
-          const current = map.get(p.id);
-          if (!current) {
+          const existing = map.get(p.id);
+          if (!existing) {
             map.set(p.id, { ...p, nome: dedupeName(p.nome) });
           } else {
-            const keepIncoming = (p.updatedAt || "") > (current.updatedAt || "");
+            const keepIncoming = (p.updatedAt || "") > (existing.updatedAt || "");
             map.set(
               p.id,
               keepIncoming
                 ? { ...p, nome: dedupeName(p.nome, p.id) }
-                : current
+                : existing
             );
           }
         }
@@ -370,10 +377,24 @@ export default function ProdutosPage() {
       if (e.key === "Escape") closeModal();
       if (openId && (e.ctrlKey || e.metaKey) && e.key === "Enter") save();
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    if (typeof window !== "undefined") {
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }
+    return;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openId, fNome, fMarca, fVolume, fCat, fCompra, fVenda, fEstoque, fAtivo, fObs]);
+  }, [
+    openId,
+    fNome,
+    fMarca,
+    fVolume,
+    fCat,
+    fCompra,
+    fVenda,
+    fEstoque,
+    fAtivo,
+    fObs,
+  ]);
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
@@ -454,7 +475,9 @@ export default function ProdutosPage() {
         <div>
           <div className="kicker">Maison Noor</div>
           <h1 className="title">CRM • Produtos</h1>
-          <p className="sub">Cadastre e controle catálogo + estoque (localStorage).</p>
+          <p className="sub">
+            Cadastre e controle catálogo + estoque (localStorage).
+          </p>
         </div>
 
         <div className="headRight">
@@ -505,7 +528,7 @@ export default function ProdutosPage() {
           <select
             className="input"
             value={cat}
-            onChange={(e) => setCat(e.target.value as any)}
+            onChange={(e) => setCat(e.target.value as "todas" | Categoria)}
           >
             <option value="todas">Todas</option>
             <option value="masculino">Masculino</option>
@@ -519,7 +542,11 @@ export default function ProdutosPage() {
           <select
             className="input"
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
+            onChange={(e) =>
+              setSortBy(
+                e.target.value as "recentes" | "nome" | "estoque" | "preco"
+              )
+            }
           >
             <option value="recentes">Mais recentes</option>
             <option value="nome">Nome (A→Z)</option>
@@ -591,8 +618,8 @@ export default function ProdutosPage() {
           </div>
         </div>
         <div className="sumHint">
-          Clique na linha para editar. <b>ESC</b> fecha. <b>Ctrl+Enter</b> salva no
-          modal.
+          Clique na linha para editar. <b>ESC</b> fecha. <b>Ctrl+Enter</b> salva
+          no modal.
           <br />
           Futuro: pedidos vão consumir <b>estoque reservado</b>, e quando pagos
           baixam do <b>estoque físico</b>.
@@ -726,11 +753,12 @@ export default function ProdutosPage() {
 
       {/* MODAL */}
       {openId ? (
-        <div className="modalOverlay" onMouseDown={closeModal} role="presentation">
-          <div
-            className="modal"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
+        <div
+          className="modalOverlay"
+          onMouseDown={closeModal}
+          role="presentation"
+        >
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="modalHead">
               <div>
                 <div className="modalKicker">
@@ -780,7 +808,7 @@ export default function ProdutosPage() {
                 <select
                   className="input"
                   value={fCat}
-                  onChange={(e) => setFCat(e.target.value as any)}
+                  onChange={(e) => setFCat(e.target.value as Categoria)}
                 >
                   <option value="masculino">Masculino</option>
                   <option value="feminino">Feminino</option>
@@ -855,11 +883,7 @@ export default function ProdutosPage() {
               <div className="spacer" />
 
               {openId !== "NEW" ? (
-                <button
-                  className="btnDanger"
-                  onClick={remove}
-                  type="button"
-                >
+                <button className="btnDanger" onClick={remove} type="button">
                   Excluir
                 </button>
               ) : null}

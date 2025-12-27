@@ -48,17 +48,28 @@ const ORIGEM_LABEL: Record<Origem, string> = {
   outros: "Outros",
 };
 
-// ✅ Type-guard para evitar "any index"
-const ORIGENS_VALIDAS = ["instagram", "whatsapp", "indicacao", "site", "outros"] as const;
+const ORIGENS_VALIDAS = [
+  "instagram",
+  "whatsapp",
+  "indicacao",
+  "site",
+  "outros",
+] as const;
+
+// type-guard para não cair em "any index"
 function isOrigem(v: unknown): v is Origem {
   return ORIGENS_VALIDAS.includes(v as Origem);
 }
+
 function origemLabel(v: unknown) {
   return isOrigem(v) ? ORIGEM_LABEL[v] : ORIGEM_LABEL.outros;
 }
 
 function formatBRL(n: number) {
-  return Number(n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return Number(n || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 }
 
 function onlyDigits(v: string) {
@@ -164,7 +175,10 @@ export default function DashboardPage() {
 
     const totalLeads = filtered.length;
 
-    const totalEstimado = filtered.reduce((acc, l) => acc + (Number(l.valorEstimado) || 0), 0);
+    const totalEstimado = filtered.reduce(
+      (acc, l) => acc + (Number(l.valorEstimado) || 0),
+      0,
+    );
 
     const byStatusCount: Record<Status, number> = {
       novo: 0,
@@ -198,7 +212,8 @@ export default function DashboardPage() {
 
     for (const l of filtered) {
       byStatusCount[l.status] = (byStatusCount[l.status] || 0) + 1;
-      byStatusValue[l.status] = (byStatusValue[l.status] || 0) + (Number(l.valorEstimado) || 0);
+      byStatusValue[l.status] =
+        (byStatusValue[l.status] || 0) + (Number(l.valorEstimado) || 0);
       byOrigemCount[l.origem] = (byOrigemCount[l.origem] || 0) + 1;
 
       for (const p of l.perfumes || []) {
@@ -215,7 +230,9 @@ export default function DashboardPage() {
     const conversaoFinalizado = totalLeads ? finalizedCount / totalLeads : 0;
 
     const ticketMedioEstimado = totalLeads ? totalEstimado / totalLeads : 0;
-    const ticketMedioPagou = paidCount ? byStatusValue.pagou / paidCount : 0;
+    const ticketMedioPagou = paidCount
+      ? byStatusValue.pagou / paidCount
+      : 0;
 
     const topPerfumes = [...perfumeCount.entries()]
       .sort((a, b) => b[1] - a[1])
@@ -228,7 +245,10 @@ export default function DashboardPage() {
     const now = Date.now();
     const score = (l: Lead) => {
       const baseDate = new Date(l.updatedAt || l.createdAt).getTime();
-      const recencyDays = Math.max(0, (now - baseDate) / (1000 * 60 * 60 * 24));
+      const recencyDays = Math.max(
+        0,
+        (now - baseDate) / (1000 * 60 * 60 * 24),
+      );
       const recencyScore = Math.max(0, 20 - recencyDays);
 
       const statusScore =
@@ -283,21 +303,39 @@ export default function DashboardPage() {
         <div>
           <div className="kicker">Maison Noor</div>
           <h1 className="title">CRM • Dashboard</h1>
-          <p className="sub">Período + origem + funil + top perfumes + leads quentes.</p>
+          <p className="sub">
+            Período + origem + funil + top perfumes + leads quentes.
+          </p>
         </div>
 
         <div className="headRight">
           <div className="seg">
-            <button className={`segBtn ${range === "hoje" ? "on" : ""}`} onClick={() => setRange("hoje")} type="button">
+            <button
+              className={`segBtn ${range === "hoje" ? "on" : ""}`}
+              onClick={() => setRange("hoje")}
+              type="button"
+            >
               Hoje
             </button>
-            <button className={`segBtn ${range === "7d" ? "on" : ""}`} onClick={() => setRange("7d")} type="button">
+            <button
+              className={`segBtn ${range === "7d" ? "on" : ""}`}
+              onClick={() => setRange("7d")}
+              type="button"
+            >
               7 dias
             </button>
-            <button className={`segBtn ${range === "30d" ? "on" : ""}`} onClick={() => setRange("30d")} type="button">
+            <button
+              className={`segBtn ${range === "30d" ? "on" : ""}`}
+              onClick={() => setRange("30d")}
+              type="button"
+            >
               30 dias
             </button>
-            <button className={`segBtn ${range === "tudo" ? "on" : ""}`} onClick={() => setRange("tudo")} type="button">
+            <button
+              className={`segBtn ${range === "tudo" ? "on" : ""}`}
+              onClick={() => setRange("tudo")}
+              type="button"
+            >
               Tudo
             </button>
           </div>
@@ -333,22 +371,34 @@ export default function DashboardPage() {
         <div className="stat">
           <div className="statLabel">Leads no período</div>
           <div className="statValue">{metrics.totalLeads}</div>
-          <div className="statHint">Total geral: {metrics.totalLeadsRaw}</div>
+          <div className="statHint">
+            Total geral: {metrics.totalLeadsRaw}
+          </div>
         </div>
 
         <div className="stat">
           <div className="statLabel">Valor estimado (período)</div>
-          <div className="statValue">{metrics.totalLeads ? formatBRL(metrics.totalEstimado) : "—"}</div>
+          <div className="statValue">
+            {metrics.totalLeads
+              ? formatBRL(metrics.totalEstimado)
+              : "—"}
+          </div>
         </div>
 
         <div className="stat">
           <div className="statLabel">Ticket médio (estimado)</div>
-          <div className="statValue">{metrics.totalLeads ? formatBRL(metrics.ticketMedioEstimado) : "—"}</div>
+          <div className="statValue">
+            {metrics.totalLeads
+              ? formatBRL(metrics.ticketMedioEstimado)
+              : "—"}
+          </div>
         </div>
 
         <div className="stat">
           <div className="statLabel">Conversão para “Pagou”</div>
-          <div className="statValue">{(metrics.conversaoPagou * 100).toFixed(0)}%</div>
+          <div className="statValue">
+            {(metrics.conversaoPagou * 100).toFixed(0)}%
+          </div>
           <div className="statHint">
             {metrics.paidCount} de {metrics.totalLeads}
           </div>
@@ -356,18 +406,31 @@ export default function DashboardPage() {
 
         <div className="stat">
           <div className="statLabel">Ticket médio (Pagou)</div>
-          <div className="statValue">{metrics.paidCount ? formatBRL(metrics.ticketMedioPagou) : "—"}</div>
+          <div className="statValue">
+            {metrics.paidCount
+              ? formatBRL(metrics.ticketMedioPagou)
+              : "—"}
+          </div>
         </div>
       </section>
 
       <section className="grid">
         {/* 🔥 Leads quentes */}
         <div className="card wide">
-          <div className="cardTitle">🔥 Leads quentes (prioridade)</div>
-          <div className="hint">Ações rápidas: WhatsApp, copiar telefone, abrir lead, ver no Kanban.</div>
+          <div className="cardTitle">
+            🔥 Leads quentes (prioridade)
+          </div>
+          <div className="hint">
+            Ações rápidas: WhatsApp, copiar telefone, abrir lead, ver no
+            Kanban.
+          </div>
 
           <div className="hotTopActions">
-            <button className="btn" onClick={() => goKanban()} type="button">
+            <button
+              className="btn"
+              onClick={() => goKanban()}
+              type="button"
+            >
               Ver no Kanban (com filtro)
             </button>
           </div>
@@ -381,45 +444,85 @@ export default function DashboardPage() {
                       <div className="hotName">{l.nome}</div>
                       <div className="hotMeta">
                         {origemLabel(l.origem)} •{" "}
-                        <span className="chip">{STATUS_META.find((s) => s.v === l.status)?.label || l.status}</span>
+                        <span className="chip">
+                          {
+                            STATUS_META.find(
+                              (s) => s.v === l.status,
+                            )?.label || l.status
+                          }
+                        </span>
                       </div>
                     </div>
 
-                    <div className="hotValue">{formatBRL(Number(l.valorEstimado || 0))}</div>
+                    <div className="hotValue">
+                      {formatBRL(Number(l.valorEstimado || 0))}
+                    </div>
                   </div>
 
                   <div className="hotPerf">
-                    {(l.perfumes || []).slice(0, 4).map((p: string) => (
-                      <span className="chip" key={p}>
-                        {p}
+                    {(l.perfumes || [])
+                      .slice(0, 4)
+                      .map((p: string) => (
+                        <span className="chip" key={p}>
+                          {p}
+                        </span>
+                      ))}
+                    {(l.perfumes || []).length > 4 ? (
+                      <span className="more">
+                        +{(l.perfumes || []).length - 4}
                       </span>
-                    ))}
-                    {(l.perfumes || []).length > 4 ? <span className="more">+{(l.perfumes || []).length - 4}</span> : null}
+                    ) : null}
                   </div>
 
-                  {l.observacoes ? <div className="obsMini">📝 {String(l.observacoes).slice(0, 90)}…</div> : null}
+                  {l.observacoes ? (
+                    <div className="obsMini">
+                      📝 {String(l.observacoes).slice(0, 90)}…
+                    </div>
+                  ) : null}
 
                   <div className="hotActions">
-                    <button className="btnPrimarySmall" onClick={() => openWhatsApp(l.telefone, l.nome)} type="button">
+                    <button
+                      className="btnPrimarySmall"
+                      onClick={() =>
+                        openWhatsApp(l.telefone, l.nome)
+                      }
+                      type="button"
+                    >
                       Abrir WhatsApp
                     </button>
-                    <button className="btn" onClick={() => copyPhone(l.telefone)} type="button">
+                    <button
+                      className="btn"
+                      onClick={() => copyPhone(l.telefone)}
+                      type="button"
+                    >
                       Copiar telefone
                     </button>
-                    <button className="btn" onClick={() => goLead(l.id)} type="button">
+                    <button
+                      className="btn"
+                      onClick={() => goLead(l.id)}
+                      type="button"
+                    >
                       Abrir Lead
                     </button>
 
                     <div className="score">
-                      Prioridade: <strong>{Math.round(l._score)}</strong>
+                      Prioridade:{" "}
+                      <strong>{Math.round(l._score)}</strong>
                     </div>
                   </div>
 
-                  <div className="hotFoot">Atualizado: {new Date(l.updatedAt || l.createdAt).toLocaleString("pt-BR")}</div>
+                  <div className="hotFoot">
+                    Atualizado:{" "}
+                    {new Date(
+                      l.updatedAt || l.createdAt,
+                    ).toLocaleString("pt-BR")}
+                  </div>
                 </div>
               ))
             ) : (
-              <div className="empty">Nenhum lead quente no filtro atual.</div>
+              <div className="empty">
+                Nenhum lead quente no filtro atual.
+              </div>
             )}
           </div>
         </div>
@@ -432,7 +535,9 @@ export default function DashboardPage() {
             {STATUS_META.map((s) => {
               const count = metrics.byStatusCount[s.v] || 0;
               const value = metrics.byStatusValue[s.v] || 0;
-              const w = Math.round((count / metrics.maxStatusCount) * 100);
+              const w = Math.round(
+                (count / metrics.maxStatusCount) * 100,
+              );
 
               return (
                 <button
@@ -447,12 +552,17 @@ export default function DashboardPage() {
                       <div className="fLabel">{s.label}</div>
                       <div className="fMeta">
                         <span className="pill">{count}</span>
-                        <span className="fValue">{count ? formatBRL(value) : "—"}</span>
+                        <span className="fValue">
+                          {count ? formatBRL(value) : "—"}
+                        </span>
                       </div>
                     </div>
 
                     <div className="barWrap">
-                      <div className="bar" style={{ width: `${w}%` }} />
+                      <div
+                        className="bar"
+                        style={{ width: `${w}%` }}
+                      />
                     </div>
                   </div>
                 </button>
@@ -461,8 +571,13 @@ export default function DashboardPage() {
           </div>
 
           <div className="hint">
-            Clique em um status para abrir o Kanban filtrado. Filtro: <strong>{range.toUpperCase()}</strong> •{" "}
-            <strong>{origemFiltro === "todas" ? "Todas origens" : ORIGEM_LABEL[origemFiltro]}</strong>
+            Clique em um status para abrir o Kanban filtrado. Filtro:{" "}
+            <strong>{range.toUpperCase()}</strong> •{" "}
+            <strong>
+              {origemFiltro === "todas"
+                ? "Todas origens"
+                : ORIGEM_LABEL[origemFiltro]}
+            </strong>
           </div>
         </div>
 
@@ -471,22 +586,33 @@ export default function DashboardPage() {
           <div className="cardTitle">Origens (no filtro)</div>
 
           <div className="origens">
-            {(Object.keys(metrics.byOrigemCount) as Origem[]).map((o) => {
-              const c = metrics.byOrigemCount[o] || 0;
-              const pct = metrics.totalLeads ? (c / metrics.totalLeads) * 100 : 0;
-              return (
-                <div key={o} className="origemItem">
-                  <div className="origemTop">
-                    <div className="origemName">{ORIGEM_LABEL[o]}</div>
-                    <div className="origemCount">{c}</div>
+            {(Object.keys(metrics.byOrigemCount) as Origem[]).map(
+              (o) => {
+                const c = metrics.byOrigemCount[o] || 0;
+                const pct = metrics.totalLeads
+                  ? (c / metrics.totalLeads) * 100
+                  : 0;
+                return (
+                  <div key={o} className="origemItem">
+                    <div className="origemTop">
+                      <div className="origemName">
+                        {ORIGEM_LABEL[o]}
+                      </div>
+                      <div className="origemCount">{c}</div>
+                    </div>
+                    <div className="origemBarWrap">
+                      <div
+                        className="origemBar"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <div className="origemPct">
+                      {pct.toFixed(0)}%
+                    </div>
                   </div>
-                  <div className="origemBarWrap">
-                    <div className="origemBar" style={{ width: `${pct}%` }} />
-                  </div>
-                  <div className="origemPct">{pct.toFixed(0)}%</div>
-                </div>
-              );
-            })}
+                );
+              },
+            )}
           </div>
         </div>
 
@@ -503,11 +629,15 @@ export default function DashboardPage() {
                 </div>
               ))
             ) : (
-              <div className="empty">Ainda sem dados de perfumes.</div>
+              <div className="empty">
+                Ainda sem dados de perfumes.
+              </div>
             )}
           </div>
 
-          <div className="hint">Top 8 perfumes dentro dos filtros selecionados.</div>
+          <div className="hint">
+            Top 8 perfumes dentro dos filtros selecionados.
+          </div>
         </div>
 
         {/* Últimos leads */}
@@ -528,27 +658,48 @@ export default function DashboardPage() {
               <tbody>
                 {metrics.filtered
                   .slice()
-                  .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
+                  .sort((a, b) =>
+                    (b.updatedAt || "").localeCompare(
+                      a.updatedAt || "",
+                    ),
+                  )
                   .slice(0, 8)
                   .map((l) => (
                     <tr key={l.id}>
                       <td>
                         <div className="name">{l.nome}</div>
-                        <div className="meta mono">{l.telefone}</div>
+                        <div className="meta mono">
+                          {l.telefone}
+                        </div>
                       </td>
                       <td>{origemLabel(l.origem)}</td>
                       <td>
-                        <span className="chip">{STATUS_META.find((s) => s.v === l.status)?.label || l.status}</span>
+                        <span className="chip">
+                          {
+                            STATUS_META.find(
+                              (s) => s.v === l.status,
+                            )?.label || l.status
+                          }
+                        </span>
                       </td>
-                      <td className="mono">{formatBRL(Number(l.valorEstimado || 0))}</td>
-                      <td className="meta">{new Date(l.updatedAt || l.createdAt).toLocaleString("pt-BR")}</td>
+                      <td className="mono">
+                        {formatBRL(
+                          Number(l.valorEstimado || 0),
+                        )}
+                      </td>
+                      <td className="meta">
+                        {new Date(
+                          l.updatedAt || l.createdAt,
+                        ).toLocaleString("pt-BR")}
+                      </td>
                     </tr>
                   ))}
 
                 {!metrics.filtered.length ? (
                   <tr>
                     <td colSpan={5} className="empty">
-                      Nenhum lead nesse filtro. Troque o período/origem ou use “Tudo”.
+                      Nenhum lead nesse filtro. Troque o
+                      período/origem ou use “Tudo”.
                     </td>
                   </tr>
                 ) : null}
@@ -587,7 +738,11 @@ export default function DashboardPage() {
           padding: 16px;
           border-radius: 18px;
           border: 1px solid rgba(200, 162, 106, 0.18);
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+          background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.03),
+            rgba(255, 255, 255, 0.01)
+          );
         }
         .headRight {
           display: flex;
@@ -608,7 +763,11 @@ export default function DashboardPage() {
           padding: 12px 14px;
           border-radius: 14px;
           border: 1px solid rgba(200, 162, 106, 0.4);
-          background: linear-gradient(180deg, rgba(200, 162, 106, 0.18), rgba(200, 162, 106, 0.08));
+          background: linear-gradient(
+            180deg,
+            rgba(200, 162, 106, 0.18),
+            rgba(200, 162, 106, 0.08)
+          );
           cursor: pointer;
           font-weight: 900;
           color: #f2f2f2;
@@ -727,7 +886,11 @@ export default function DashboardPage() {
         .card {
           border-radius: 18px;
           border: 1px solid rgba(200, 162, 106, 0.18);
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+          background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.03),
+            rgba(255, 255, 255, 0.01)
+          );
           padding: 14px;
         }
         .wide {
@@ -897,7 +1060,11 @@ export default function DashboardPage() {
         }
         .bar {
           height: 100%;
-          background: linear-gradient(90deg, rgba(200, 162, 106, 0.75), rgba(200, 162, 106, 0.15));
+          background: linear-gradient(
+            90deg,
+            rgba(200, 162, 106, 0.75),
+            rgba(200, 162, 106, 0.15)
+          );
           border-radius: 999px;
         }
 
@@ -934,7 +1101,11 @@ export default function DashboardPage() {
         }
         .origemBar {
           height: 100%;
-          background: linear-gradient(90deg, rgba(200, 162, 106, 0.7), rgba(200, 162, 106, 0.12));
+          background: linear-gradient(
+            90deg,
+            rgba(200, 162, 106, 0.7),
+            rgba(200, 162, 106, 0.12)
+          );
         }
         .origemPct {
           margin-top: 8px;
@@ -1018,8 +1189,8 @@ export default function DashboardPage() {
           white-space: nowrap;
         }
         .mono {
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
-            monospace;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+            "Liberation Mono", "Courier New", monospace;
         }
         .empty {
           padding: 16px;

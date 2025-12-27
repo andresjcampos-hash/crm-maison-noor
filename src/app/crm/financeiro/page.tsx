@@ -26,26 +26,30 @@ type Lancamento = {
   observacoes?: string;
   createdAt: string;
   updatedAt: string;
+
+  // 🔗 Integração com Pedidos (quando vem de pedido pago)
+  origemPedidoId?: string;
+  clienteNome?: string;
 };
 
 const STORAGE_KEY = "maison_noor_crm_financeiro_v1";
 
-function nowISO() {
+function nowISO(): string {
   return new Date().toISOString();
 }
 
-function uid() {
+function uid(): string {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-function formatBRL(n: number) {
+function formatBRL(n: number): string {
   return Number(n || 0).toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
   });
 }
 
-function canUseStorage() {
+function canUseStorage(): boolean {
   return typeof window !== "undefined" && typeof localStorage !== "undefined";
 }
 
@@ -61,12 +65,12 @@ function readStorage(): Lancamento[] {
   }
 }
 
-function writeStorage(items: Lancamento[]) {
+function writeStorage(items: Lancamento[]): void {
   if (!canUseStorage()) return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
 }
 
-function toCompetencia(iso: string) {
+function toCompetencia(iso: string): string {
   // retorna AAAA-MM
   if (!iso) return "";
   return iso.slice(0, 7);
@@ -79,9 +83,7 @@ export default function FinanceiroPage() {
   // filtros
   const [q, setQ] = useState("");
   const [tipoFilter, setTipoFilter] = useState<"todos" | TipoLanc>("todos");
-  const [statusFilter, setStatusFilter] = useState<"todos" | StatusLanc>(
-    "todos"
-  );
+  const [statusFilter, setStatusFilter] = useState<"todos" | StatusLanc>("todos");
   const [competenciaFilter, setCompetenciaFilter] = useState<string>("");
 
   // modal
@@ -108,25 +110,25 @@ export default function FinanceiroPage() {
     setItems(data);
 
     // se não tiver competência selecionada, usa mês atual
-    if (!competenciaFilter) {
-      const hoje = new Date();
-      const pad = (n: number) => String(n).padStart(2, "0");
-      const compDefault = `${hoje.getFullYear()}-${pad(hoje.getMonth() + 1)}`;
-      setCompetenciaFilter(compDefault);
-    }
+    const hoje = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const compDefault = `${hoje.getFullYear()}-${pad(hoje.getMonth() + 1)}`;
+    setCompetenciaFilter((prev) => prev || compDefault);
   }, []);
 
-  function showToast(msg: string, ms = 1600) {
+  function showToast(msg: string, ms = 1600): void {
     setToast(msg);
-    window.setTimeout(() => setToast(""), ms);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => setToast(""), ms);
+    }
   }
 
-  function refresh() {
+  function refresh(): void {
     setItems(readStorage());
     showToast("🔄 Atualizado!");
   }
 
-  function openNew() {
+  function openNew(): void {
     setOpenId("NEW");
 
     const hoje = new Date();
@@ -145,7 +147,7 @@ export default function FinanceiroPage() {
     setFObs("");
   }
 
-  function openEdit(id: string) {
+  function openEdit(id: string): void {
     const l = items.find((x) => x.id === id);
     if (!l) return;
     setOpenId(id);
@@ -160,16 +162,16 @@ export default function FinanceiroPage() {
     setFObs(l.observacoes || "");
   }
 
-  function closeModal() {
+  function closeModal(): void {
     setOpenId(null);
   }
 
-  function toNum(v: string) {
+  function toNum(v: string): number {
     const n = Number(String(v || "").replace(",", "."));
     return Number.isFinite(n) ? n : 0;
   }
 
-  function save() {
+  function save(): void {
     const desc = fDescricao.trim();
     if (!desc) {
       showToast("⚠️ Informe a descrição.");
@@ -230,11 +232,14 @@ export default function FinanceiroPage() {
     closeModal();
   }
 
-  function remove() {
+  function remove(): void {
     if (!openItem) return;
-    const ok = window.confirm(
-      `Excluir o lançamento "${openItem.descricao}"? (não dá para desfazer)`
-    );
+    const ok =
+      typeof window === "undefined"
+        ? true
+        : window.confirm(
+            `Excluir o lançamento "${openItem.descricao}"? (não dá para desfazer)`
+          );
     if (!ok) return;
 
     setItems((prev) => {
@@ -247,7 +252,7 @@ export default function FinanceiroPage() {
     closeModal();
   }
 
-  function toggleStatus(id: string) {
+  function toggleStatus(id: string): void {
     setItems((prev) => {
       const next = prev.map((l) => {
         if (l.id !== id) return l;
@@ -259,7 +264,7 @@ export default function FinanceiroPage() {
     });
   }
 
-  function duplicateLanc(id: string) {
+  function duplicateLanc(id: string): void {
     const l = items.find((x) => x.id === id);
     if (!l) return;
 
@@ -277,7 +282,7 @@ export default function FinanceiroPage() {
   }
 
   // export/import
-  function exportJSON() {
+  function exportJSON(): void {
     const data = JSON.stringify(items, null, 2);
     const blob = new Blob([data], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -293,7 +298,7 @@ export default function FinanceiroPage() {
     showToast("⬇️ Exportado!");
   }
 
-  function importJSON(file: File) {
+  function importJSON(file: File): void {
     const reader = new FileReader();
     reader.onload = () => {
       try {
@@ -323,6 +328,13 @@ export default function FinanceiroPage() {
                 ? x.forma
                 : "outros";
 
+            const origemPedidoId = x.origemPedidoId
+              ? String(x.origemPedidoId)
+              : undefined;
+            const clienteNome = x.clienteNome
+              ? String(x.clienteNome)
+              : undefined;
+
             return {
               id: String(x.id || uid()),
               data: dataIso,
@@ -334,22 +346,26 @@ export default function FinanceiroPage() {
               valor: Number(x.valor) || 0,
               status,
               observacoes: x.observacoes ? String(x.observacoes) : undefined,
+              origemPedidoId,
+              clienteNome,
               createdAt: x.createdAt ? String(x.createdAt) : nowISO(),
               updatedAt: x.updatedAt ? String(x.updatedAt) : nowISO(),
             } as Lancamento;
           })
           .filter((l) => l.descricao);
 
+        // ✅ usa o que está no storage agora, não o "items" do closure
+        const current = readStorage();
         const map = new Map<string, Lancamento>();
-        for (const l of items) map.set(l.id, l);
+        for (const l of current) map.set(l.id, l);
 
         for (const l of incoming) {
-          const current = map.get(l.id);
-          if (!current) {
+          const existing = map.get(l.id);
+          if (!existing) {
             map.set(l.id, l);
           } else {
-            const keepIncoming = (l.updatedAt || "") > (current.updatedAt || "");
-            map.set(l.id, keepIncoming ? l : current);
+            const keepIncoming = (l.updatedAt || "") > (existing.updatedAt || "");
+            map.set(l.id, keepIncoming ? l : existing);
           }
         }
 
@@ -372,8 +388,12 @@ export default function FinanceiroPage() {
       if (e.key === "Escape") closeModal();
       if (openId && (e.ctrlKey || e.metaKey) && e.key === "Enter") save();
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }
+    return;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openId, fData, fDescricao, fValor, fCategoria, fForma, fStatus, fTipo, fObs]);
 
@@ -482,7 +502,7 @@ export default function FinanceiroPage() {
           <select
             className="input"
             value={tipoFilter}
-            onChange={(e) => setTipoFilter(e.target.value as any)}
+            onChange={(e) => setTipoFilter(e.target.value as "todos" | TipoLanc)}
           >
             <option value="todos">Todos</option>
             <option value="receita">Receitas</option>
@@ -495,7 +515,9 @@ export default function FinanceiroPage() {
           <select
             className="input"
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as any)}
+            onChange={(e) =>
+              setStatusFilter(e.target.value as "todos" | StatusLanc)
+            }
           >
             <option value="todos">Todos</option>
             <option value="pago">Pagos</option>
@@ -557,8 +579,8 @@ export default function FinanceiroPage() {
           </div>
         </div>
         <div className="sumHint">
-          Clique na linha para editar.{" "}
-          <b>ESC</b> fecha o modal. <b>Ctrl+Enter</b> salva.
+          Clique na linha para editar. <b>ESC</b> fecha o modal.{" "}
+          <b>Ctrl+Enter</b> salva.
           <br />
           Dica: use o status <b>Pendente</b> para reservas de pagamento futuro.
         </div>
@@ -667,7 +689,10 @@ export default function FinanceiroPage() {
                   <button
                     className="mini danger"
                     onClick={() => {
-                      const ok = window.confirm("Excluir este lançamento?");
+                      const ok =
+                        typeof window === "undefined"
+                          ? true
+                          : window.confirm("Excluir este lançamento?");
                       if (!ok) return;
                       setItems((prev) => {
                         const next = prev.filter((x) => x.id !== l.id);
@@ -741,7 +766,7 @@ export default function FinanceiroPage() {
                 <select
                   className="input"
                   value={fTipo}
-                  onChange={(e) => setFTipo(e.target.value as any)}
+                  onChange={(e) => setFTipo(e.target.value as TipoLanc)}
                 >
                   <option value="receita">Receita</option>
                   <option value="despesa">Despesa</option>
@@ -772,7 +797,7 @@ export default function FinanceiroPage() {
                 <select
                   className="input"
                   value={fForma}
-                  onChange={(e) => setFForma(e.target.value as any)}
+                  onChange={(e) => setFForma(e.target.value as FormaPag)}
                 >
                   <option value="pix">Pix</option>
                   <option value="dinheiro">Dinheiro</option>
@@ -798,7 +823,7 @@ export default function FinanceiroPage() {
                 <select
                   className="input"
                   value={fStatus}
-                  onChange={(e) => setFStatus(e.target.value as any)}
+                  onChange={(e) => setFStatus(e.target.value as StatusLanc)}
                 >
                   <option value="pago">Pago</option>
                   <option value="pendente">Pendente</option>

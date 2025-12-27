@@ -51,18 +51,24 @@ const ORIGEM_LABEL: Record<Origem, string> = {
   outros: "Outros",
 };
 
-function formatBRL(n: number) {
-  return Number(n).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+function formatBRL(n: number): string {
+  return Number(n || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 }
-function onlyDigits(v: string) {
+
+function onlyDigits(v: string): string {
   return String(v || "").replace(/\D/g, "");
 }
-function nowISO() {
+
+function nowISO(): string {
   return new Date().toISOString();
 }
+
 function readStorage(): Lead[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as Lead[]) : [];
@@ -70,7 +76,9 @@ function readStorage(): Lead[] {
     return [];
   }
 }
-function writeStorage(leads: Lead[]) {
+
+function writeStorage(leads: Lead[]): void {
+  if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(leads));
 }
 
@@ -123,7 +131,10 @@ function KanbanView() {
 
   // Modal
   const [openId, setOpenId] = useState<string | null>(null);
-  const openLead = useMemo(() => leads.find((l) => l.id === openId) || null, [openId, leads]);
+  const openLead = useMemo(
+    () => leads.find((l) => l.id === openId) || null,
+    [openId, leads]
+  );
 
   // campos do modal
   const [mNome, setMNome] = useState("");
@@ -136,22 +147,25 @@ function KanbanView() {
   const [perfInput, setPerfInput] = useState("");
 
   // ===== helpers URL (filtros)
-  function setQuery(next: { range?: string; origem?: string; status?: string }) {
+  function setQuery(next: { range?: string; origem?: string; status?: string }): void {
     const params = new URLSearchParams(sp.toString());
     if (next.range) params.set("range", next.range);
     if (next.origem) params.set("origem", next.origem);
     if (next.status) params.set("status", next.status);
     router.replace(`/crm/kanban?${params.toString()}`);
   }
-  function setRangeAndUrl(r: "hoje" | "7d" | "30d" | "tudo") {
+
+  function setRangeAndUrl(r: "hoje" | "7d" | "30d" | "tudo"): void {
     setRange(r);
     setQuery({ range: r });
   }
-  function setOrigemAndUrl(o: Origem | "todas") {
+
+  function setOrigemAndUrl(o: Origem | "todas"): void {
     setOrigemFiltro(o);
     setQuery({ origem: o });
   }
-  function setStatusAndUrl(s: Status | "todos") {
+
+  function setStatusAndUrl(s: Status | "todos"): void {
     setStatusFiltro(s);
     setQuery({ status: s });
   }
@@ -196,18 +210,18 @@ function KanbanView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spStr]);
 
-  function showToast(msg: string) {
+  function showToast(msg: string): void {
     setToast(msg);
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     toastTimerRef.current = window.setTimeout(() => setToast(""), 1600);
   }
 
-  function refresh() {
+  function refresh(): void {
     setLeads(readStorage());
     showToast("🔄 Atualizado!");
   }
 
-  function inRange(iso: string) {
+  function inRange(iso: string): boolean {
     if (range === "tudo") return true;
 
     const d = new Date(iso);
@@ -227,7 +241,7 @@ function KanbanView() {
     return d >= start;
   }
 
-  function openWhatsApp(telefone: string, nome?: string) {
+  function openWhatsApp(telefone: string, nome?: string): void {
     const digits = onlyDigits(telefone);
     const number =
       digits.length >= 12 && digits.startsWith("55")
@@ -241,7 +255,7 @@ function KanbanView() {
     window.open(url, "_blank");
   }
 
-  async function copyPhone(telefone: string) {
+  async function copyPhone(telefone: string): Promise<void> {
     const digits = onlyDigits(telefone);
     try {
       await navigator.clipboard.writeText(digits);
@@ -251,11 +265,11 @@ function KanbanView() {
     }
   }
 
-  function goLead(id: string) {
+  function goLead(id: string): void {
     router.push(`/crm/leads?focus=${encodeURIComponent(id)}`);
   }
 
-  function moveLeadToStatus(id: string, nextStatus: Status) {
+  function moveLeadToStatus(id: string, nextStatus: Status): void {
     setLeads((prev) => {
       const next = prev.map((l) => {
         if (l.id !== id) return l;
@@ -281,14 +295,16 @@ function KanbanView() {
   }
 
   // DnD
-  function onDragStart(id: string) {
+  function onDragStart(id: string): void {
     setDraggingId(id);
   }
-  function onDragEnd() {
+
+  function onDragEnd(): void {
     setDraggingId(null);
     setDragOverStatus(null);
   }
-  function onDropStatus(s: Status) {
+
+  function onDropStatus(s: Status): void {
     if (!draggingId) return;
     moveLeadToStatus(draggingId, s);
     setDraggingId(null);
@@ -296,7 +312,7 @@ function KanbanView() {
   }
 
   // Modal
-  function openModal(id: string) {
+  function openModal(id: string): void {
     const l = leads.find((x) => x.id === id);
     if (!l) return;
     setOpenId(id);
@@ -311,12 +327,12 @@ function KanbanView() {
     setPerfInput("");
   }
 
-  function closeModal() {
+  function closeModal(): void {
     setOpenId(null);
     setPerfInput("");
   }
 
-  function addPerfume() {
+  function addPerfume(): void {
     const p = perfInput.trim();
     if (!p) return;
     if (mPerfumes.some((x) => x.toLowerCase() === p.toLowerCase())) {
@@ -327,11 +343,11 @@ function KanbanView() {
     setPerfInput("");
   }
 
-  function removePerfume(p: string) {
+  function removePerfume(p: string): void {
     setMPerfumes((prev) => prev.filter((x) => x !== p));
   }
 
-  function saveModal() {
+  function saveModal(): void {
     if (!openId) return;
 
     const val = Number(String(mValor).replace(",", "."));
@@ -356,7 +372,15 @@ function KanbanView() {
             {
               at: nowISO(),
               type: "edit",
-              fields: ["nome", "telefone", "origem", "status", "valorEstimado", "perfumes", "observacoes"],
+              fields: [
+                "nome",
+                "telefone",
+                "origem",
+                "status",
+                "valorEstimado",
+                "perfumes",
+                "observacoes",
+              ],
             },
           ],
         };
@@ -371,7 +395,7 @@ function KanbanView() {
     closeModal();
   }
 
-  function deleteLead() {
+  function deleteLead(): void {
     if (!openId) return;
     const ok = window.confirm("Excluir este lead? (não dá para desfazer)");
     if (!ok) return;
@@ -418,7 +442,7 @@ function KanbanView() {
 
     for (const l of filteredLeads) map[l.status].push(l);
 
-    for (const k of Object.keys(map) as Status[]) {
+    (Object.keys(map) as Status[]).forEach((k) => {
       map[k] = map[k]
         .slice()
         .sort((a, b) => {
@@ -426,13 +450,17 @@ function KanbanView() {
           const db = b.updatedAt || b.createdAt;
           return db.localeCompare(da);
         });
-    }
+    });
+
     return map;
   }, [filteredLeads]);
 
   const totals = useMemo(() => {
     const total = filteredLeads.length;
-    const totalValue = filteredLeads.reduce((acc, l) => acc + (Number(l.valorEstimado) || 0), 0);
+    const totalValue = filteredLeads.reduce(
+      (acc, l) => acc + (Number(l.valorEstimado) || 0),
+      0
+    );
     return { total, totalValue };
   }, [filteredLeads]);
 
@@ -442,7 +470,9 @@ function KanbanView() {
         <div>
           <div className="kicker">Maison Noor</div>
           <h1 className="title">CRM • Kanban</h1>
-          <p className="sub">Clique em um card para editar rápido. Arraste para mudar status.</p>
+          <p className="sub">
+            Clique em um card para editar rápido. Arraste para mudar status.
+          </p>
         </div>
 
         <div className="headRight">
@@ -481,7 +511,7 @@ function KanbanView() {
             <label>Origem</label>
             <select
               value={origemFiltro}
-              onChange={(e) => setOrigemAndUrl(e.target.value as any)}
+              onChange={(e) => setOrigemAndUrl(e.target.value as Origem | "todas")}
               className="selectSmall"
             >
               <option value="todas">Todas</option>
@@ -497,7 +527,7 @@ function KanbanView() {
             <label>Status</label>
             <select
               value={statusFiltro}
-              onChange={(e) => setStatusAndUrl(e.target.value as any)}
+              onChange={(e) => setStatusAndUrl(e.target.value as Status | "todos")}
               className="selectSmall"
             >
               <option value="todos">Todos</option>
@@ -524,9 +554,13 @@ function KanbanView() {
         </div>
         <div className="sumCard">
           <div className="sumLabel">Valor estimado</div>
-          <div className="sumValue">{totals.total ? formatBRL(totals.totalValue) : "—"}</div>
+          <div className="sumValue">
+            {totals.total ? formatBRL(totals.totalValue) : "—"}
+          </div>
         </div>
-        <div className="sumHint">Clique no card para abrir o modal. ESC fecha.</div>
+        <div className="sumHint">
+          Clique no card para abrir o modal. ESC fecha.
+        </div>
       </section>
 
       <section className="board">
@@ -542,7 +576,9 @@ function KanbanView() {
                 e.preventDefault();
                 setDragOverStatus(s.v);
               }}
-              onDragLeave={() => setDragOverStatus((cur) => (cur === s.v ? null : cur))}
+              onDragLeave={() =>
+                setDragOverStatus((cur) => (cur === s.v ? null : cur))
+              }
               onDrop={(e) => {
                 e.preventDefault();
                 onDropStatus(s.v);
@@ -573,7 +609,9 @@ function KanbanView() {
                   >
                     <div className="cardTop">
                       <div className="name">{l.nome}</div>
-                      <div className="value">{formatBRL(Number(l.valorEstimado || 0))}</div>
+                      <div className="value">
+                        {formatBRL(Number(l.valorEstimado || 0))}
+                      </div>
                     </div>
 
                     <div className="metaRow">
@@ -588,19 +626,32 @@ function KanbanView() {
                             {p}
                           </span>
                         ))}
-                        {l.perfumes.length > 3 ? <span className="more">+{l.perfumes.length - 3}</span> : null}
+                        {l.perfumes.length > 3 ? (
+                          <span className="more">
+                            +{l.perfumes.length - 3}
+                          </span>
+                        ) : null}
                       </div>
                     ) : null}
 
-                    {l.observacoes ? <div className="obs">📝 {String(l.observacoes).slice(0, 80)}…</div> : null}
+                    {l.observacoes ? (
+                      <div className="obs">
+                        📝 {String(l.observacoes).slice(0, 80)}…
+                      </div>
+                    ) : null}
 
                     <div className="foot">
-                      Atualizado: {new Date(l.updatedAt || l.createdAt).toLocaleString("pt-BR")}
+                      Atualizado:{" "}
+                      {new Date(
+                        l.updatedAt || l.createdAt
+                      ).toLocaleString("pt-BR")}
                     </div>
                   </div>
                 ))}
 
-                {!items.length ? <div className="emptyCol">Sem leads</div> : null}
+                {!items.length ? (
+                  <div className="emptyCol">Sem leads</div>
+                ) : null}
               </div>
             </div>
           );
@@ -609,8 +660,15 @@ function KanbanView() {
 
       {/* MODAL */}
       {openLead ? (
-        <div className="modalOverlay" onMouseDown={closeModal} role="presentation">
-          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div
+          className="modalOverlay"
+          onMouseDown={closeModal}
+          role="presentation"
+        >
+          <div
+            className="modal"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <div className="modalHead">
               <div>
                 <div className="modalKicker">Editar lead</div>
@@ -620,7 +678,12 @@ function KanbanView() {
                 </div>
               </div>
 
-              <button className="btnX" onClick={closeModal} type="button" aria-label="Fechar">
+              <button
+                className="btnX"
+                onClick={closeModal}
+                type="button"
+                aria-label="Fechar"
+              >
                 ✕
               </button>
             </div>
@@ -628,17 +691,29 @@ function KanbanView() {
             <div className="modalGrid">
               <div className="field">
                 <label>Nome</label>
-                <input className="input" value={mNome} onChange={(e) => setMNome(e.target.value)} />
+                <input
+                  className="input"
+                  value={mNome}
+                  onChange={(e) => setMNome(e.target.value)}
+                />
               </div>
 
               <div className="field">
                 <label>Telefone</label>
-                <input className="input" value={mTelefone} onChange={(e) => setMTelefone(e.target.value)} />
+                <input
+                  className="input"
+                  value={mTelefone}
+                  onChange={(e) => setMTelefone(e.target.value)}
+                />
               </div>
 
               <div className="field">
                 <label>Origem</label>
-                <select className="input" value={mOrigem} onChange={(e) => setMOrigem(e.target.value as Origem)}>
+                <select
+                  className="input"
+                  value={mOrigem}
+                  onChange={(e) => setMOrigem(e.target.value as Origem)}
+                >
                   <option value="instagram">Instagram</option>
                   <option value="whatsapp">WhatsApp</option>
                   <option value="indicacao">Indicação</option>
@@ -649,7 +724,11 @@ function KanbanView() {
 
               <div className="field">
                 <label>Status</label>
-                <select className="input" value={mStatus} onChange={(e) => setMStatus(e.target.value as Status)}>
+                <select
+                  className="input"
+                  value={mStatus}
+                  onChange={(e) => setMStatus(e.target.value as Status)}
+                >
                   {STATUS_META.map((s) => (
                     <option key={s.v} value={s.v}>
                       {s.label}
@@ -660,7 +739,11 @@ function KanbanView() {
 
               <div className="field">
                 <label>Valor estimado (R$)</label>
-                <input className="input" value={mValor} onChange={(e) => setMValor(e.target.value)} />
+                <input
+                  className="input"
+                  value={mValor}
+                  onChange={(e) => setMValor(e.target.value)}
+                />
               </div>
 
               <div className="field wide">
@@ -678,7 +761,11 @@ function KanbanView() {
                       }
                     }}
                   />
-                  <button className="btnSmall" onClick={addPerfume} type="button">
+                  <button
+                    className="btnSmall"
+                    onClick={addPerfume}
+                    type="button"
+                  >
                     Adicionar
                   </button>
                 </div>
@@ -686,7 +773,13 @@ function KanbanView() {
                 <div className="perfTags">
                   {mPerfumes.length ? (
                     mPerfumes.map((p) => (
-                      <button key={p} className="tag" onClick={() => removePerfume(p)} type="button" title="Remover">
+                      <button
+                        key={p}
+                        className="tag"
+                        onClick={() => removePerfume(p)}
+                        type="button"
+                        title="Remover"
+                      >
                         {p} <span className="tagX">✕</span>
                       </button>
                     ))
@@ -698,33 +791,59 @@ function KanbanView() {
 
               <div className="field wide">
                 <label>Observações</label>
-                <textarea className="textarea" value={mObs} onChange={(e) => setMObs(e.target.value)} />
+                <textarea
+                  className="textarea"
+                  value={mObs}
+                  onChange={(e) => setMObs(e.target.value)}
+                />
               </div>
             </div>
 
             <div className="modalActions">
-              <button className="btnSmallPrimary" onClick={saveModal} type="button">
+              <button
+                className="btnSmallPrimary"
+                onClick={saveModal}
+                type="button"
+              >
                 Salvar
               </button>
-              <button className="btnSmall" onClick={() => openWhatsApp(mTelefone, mNome)} type="button">
+              <button
+                className="btnSmall"
+                onClick={() => openWhatsApp(mTelefone, mNome)}
+                type="button"
+              >
                 WhatsApp
               </button>
-              <button className="btnSmall" onClick={() => copyPhone(mTelefone)} type="button">
+              <button
+                className="btnSmall"
+                onClick={() => copyPhone(mTelefone)}
+                type="button"
+              >
                 Copiar
               </button>
-              <button className="btnSmall" onClick={() => goLead(openLead.id)} type="button">
+              <button
+                className="btnSmall"
+                onClick={() => goLead(openLead.id)}
+                type="button"
+              >
                 Abrir Lead
               </button>
 
               <div className="spacer" />
 
-              <button className="btnDanger" onClick={deleteLead} type="button">
+              <button
+                className="btnDanger"
+                onClick={deleteLead}
+                type="button"
+              >
                 Excluir
               </button>
             </div>
 
             <div className="modalFoot">
-              Criado: {new Date(openLead.createdAt).toLocaleString("pt-BR")} • Atualizado:{" "}
+              Criado:{" "}
+              {new Date(openLead.createdAt).toLocaleString("pt-BR")} •
+              Atualizado:{" "}
               {new Date(openLead.updatedAt).toLocaleString("pt-BR")}
             </div>
           </div>
@@ -762,7 +881,11 @@ function KanbanView() {
           padding: 16px;
           border-radius: 18px;
           border: 1px solid rgba(200, 162, 106, 0.18);
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+          background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.03),
+            rgba(255, 255, 255, 0.01)
+          );
         }
         .headRight {
           display: flex;
@@ -1173,7 +1296,11 @@ function KanbanView() {
           padding: 10px 12px;
           border-radius: 14px;
           border: 1px solid rgba(200, 162, 106, 0.4);
-          background: linear-gradient(180deg, rgba(200, 162, 106, 0.18), rgba(200, 162, 106, 0.08));
+          background: linear-gradient(
+            180deg,
+            rgba(200, 162, 106, 0.18),
+            rgba(200, 162, 106, 0.08)
+          );
           cursor: pointer;
           font-weight: 900;
           font-size: 12px;
@@ -1191,8 +1318,8 @@ function KanbanView() {
         }
 
         .mono {
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
-            monospace;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+            "Liberation Mono", "Courier New", monospace;
         }
         .modalFoot {
           padding: 10px 8px 4px;

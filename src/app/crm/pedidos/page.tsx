@@ -43,6 +43,8 @@ type PedidoItem = {
 
 type Pedido = {
   id: string;
+  /** ✅ Número sequencial (0001, 0002, ...) */
+  numero?: number;
   leadId?: string;
   clienteNome: string;
   telefone: string;
@@ -59,12 +61,14 @@ type Pedido = {
   estoqueBaixado?: boolean;
 };
 
+type ProdutoCategoria = "masculino" | "feminino" | "unissex";
+
 type Produto = {
   id: string;
   nome: string;
   marca?: string;
   volumeMl?: number;
-  categoria?: "masculino" | "feminino" | "unissex";
+  categoria?: ProdutoCategoria;
   precoCompra?: number;
   precoVenda?: number;
   estoque?: number;
@@ -78,6 +82,9 @@ const LEADS_KEY = "maison_noor_crm_leads_v1";
 const PEDIDOS_KEY = "maison_noor_crm_pedidos_v1";
 const PRODUTOS_KEY = "maison_noor_crm_produtos_v1";
 
+/** ✅ Controle de sequência de pedidos */
+const PEDIDOS_SEQ_KEY = "maison_noor_crm_pedidos_seq_v1";
+
 // ✅ Financeiro (receitas vindas de pedidos)
 const FINANCEIRO_KEY = "maison_noor_crm_financeiro_v1";
 
@@ -88,6 +95,24 @@ type PedidoParaFinanceiro = {
   cliente?: string;
   data?: string;
   meioPagamento?: string;
+};
+
+// 🔁 estrutura alinhada com a tela Financeiro
+type FinanceiroEntry = {
+  id: string;
+  data: string; // data do lançamento
+  competencia: string; // AAAA-MM (mês competência)
+  tipo: "receita" | "despesa";
+  status: "pago" | "pendente" | "cancelado";
+  descricao: string;
+  categoria?: string;
+  forma: string; // ex: Pix, Crédito
+  valor: number;
+  observacoes?: string;
+  origemPedidoId?: string;
+  clienteNome?: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 const STATUS_PEDIDO_META: { v: StatusPedido; label: string }[] = [
@@ -110,25 +135,28 @@ const ORIGEM_LABEL: Record<Origem, string> = {
 // type-guard origem
 const ORIGENS_VALIDAS = ["instagram", "whatsapp", "indicacao", "site", "outros"] as const;
 function isOrigem(v: unknown): v is Origem {
-  return ORIGENS_VALIDAS.includes(v as any);
+  return ORIGENS_VALIDAS.includes(v as Origem);
 }
-function origemLabel(v: unknown) {
+function origemLabel(v: unknown): string {
   return isOrigem(v) ? ORIGEM_LABEL[v] : ORIGEM_LABEL.outros;
 }
 
-function formatBRL(n: number) {
-  return Number(n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+function formatBRL(n: number): string {
+  return Number(n || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 }
 
-function onlyDigits(v: string) {
+function onlyDigits(v: string): string {
   return String(v || "").replace(/\D/g, "");
 }
 
-function uid() {
+function uid(): string {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-function canUseStorage() {
+function canUseStorage(): boolean {
   return typeof window !== "undefined" && typeof localStorage !== "undefined";
 }
 
@@ -143,13 +171,27 @@ function loadJSON<T>(key: string, fallback: T): T {
   }
 }
 
-function saveJSON<T>(key: string, value: T) {
+function saveJSON<T>(key: string, value: T): void {
   if (!canUseStorage()) return;
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+/** ✅ Formata número do pedido como 0001, 0002... */
+function formatNumeroPedido(n?: number): string {
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return "—";
+  return n.toString().padStart(4, "0");
+}
+
+/** ✅ Gera o próximo número sequencial do pedido */
+function nextPedidoNumero(): number {
+  const atual = loadJSON<number>(PEDIDOS_SEQ_KEY, 0);
+  const prox = (Number(atual) || 0) + 1;
+  saveJSON(PEDIDOS_SEQ_KEY, prox);
+  return prox;
+}
+
 // 🔗 Pedido -> Lead: sincroniza status do lead quando pedido muda
-function syncLeadStatusFromPedido(pedido: Pedido) {
+function syncLeadStatusFromPedido(pedido: Pedido): void {
   if (!pedido.leadId) return;
 
   const leads = loadJSON<Lead[]>(LEADS_KEY, []);
@@ -180,18 +222,18 @@ function syncLeadStatusFromPedido(pedido: Pedido) {
  * - baixa quando status vira pago/enviado/entregue (1x)
  * - devolve quando status vira cancelado (se já baixou)
  */
-function shouldBaixarEstoque(status: StatusPedido) {
+function shouldBaixarEstoque(status: StatusPedido): boolean {
   return status === "pago" || status === "enviado" || status === "entregue";
 }
-function shouldDevolverEstoque(status: StatusPedido) {
+function shouldDevolverEstoque(status: StatusPedido): boolean {
   return status === "cancelado";
 }
 
-function ajustarEstoquePorPedido(pedido: Pedido, modo: "baixar" | "devolver") {
+function ajustarEstoquePorPedido(pedido: Pedido, modo: "baixar" | "devolver"): void {
   const produtos = loadJSON<Produto[]>(PRODUTOS_KEY, []);
   if (!produtos.length) return;
 
-  const map = new Map(produtos.map((p) => [p.id, p]));
+  const map = new Map<string, Produto>(produtos.map((p) => [p.id, p]));
 
   for (const it of pedido.itens || []) {
     if (!it.produtoId) continue; // só baixa/devolve se veio do cadastro de produtos (ou vinculado)
@@ -218,7 +260,7 @@ function ajustarEstoquePorPedido(pedido: Pedido, modo: "baixar" | "devolver") {
 }
 
 // ✅ normaliza texto pra casar nome do Lead com nome do Produto
-function norm(s: string) {
+function norm(s: string): string {
   return String(s || "")
     .trim()
     .toLowerCase()
@@ -227,34 +269,96 @@ function norm(s: string) {
     .replace(/\s+/g, " ");
 }
 
+// helper para mês/competência (AAAA-MM)
+function toCompetencia(iso: string): string {
+  return iso.slice(0, 7);
+}
+
+// ✅ helper para descrição curta no Financeiro (agora possível usar o número do pedido)
+function descricaoPedidoFinanceiro(id: string, nome?: string, numero?: number): string {
+  const codigo =
+    typeof numero === "number" && numero > 0
+      ? formatNumeroPedido(numero)
+      : id.slice(-6); // fallback antigo
+
+  const base = `Venda • Pedido #${codigo}`;
+  return nome ? `${base} • ${nome}` : base;
+}
+
+// ✅ migração: acerta descrições antigas no Financeiro
+function migrarDescricoesFinanceiroAntigas(): void {
+  const lista = loadJSON<FinanceiroEntry[]>(FINANCEIRO_KEY, []);
+  if (!lista.length) return;
+
+  const pedidos = loadJSON<Pedido[]>(PEDIDOS_KEY, []);
+
+  let alterou = false;
+
+  const novaLista = lista.map((l) => {
+    // só mexe em lançamentos que vieram de pedido
+    if (!l.origemPedidoId) return l;
+
+    // só altera se estiver no formato antigo "Venda pedido ..."
+    if (!l.descricao.startsWith("Venda pedido")) return l;
+
+    const pedidoOrigem = pedidos.find((p) => p.id === l.origemPedidoId);
+    const numero = pedidoOrigem?.numero;
+
+    const novaDesc = descricaoPedidoFinanceiro(l.origemPedidoId, l.clienteNome, numero);
+    if (novaDesc === l.descricao) return l;
+
+    alterou = true;
+    return {
+      ...l,
+      descricao: novaDesc,
+      updatedAt: new Date().toISOString(),
+    };
+  });
+
+  if (alterou) {
+    saveJSON(FINANCEIRO_KEY, novaLista);
+  }
+}
+
 // ✅ registra receita no Financeiro quando pedido é pago
-function registrarReceitaDoPedido(p: PedidoParaFinanceiro) {
-  const lista = loadJSON<any[]>(FINANCEIRO_KEY, []);
+function registrarReceitaDoPedido(p: PedidoParaFinanceiro): void {
+  try {
+    // garante que o valor em storage realmente seja array
+    const listaRaw = loadJSON<unknown>(FINANCEIRO_KEY, []);
+    const lista: FinanceiroEntry[] = Array.isArray(listaRaw)
+      ? (listaRaw as FinanceiroEntry[])
+      : [];
 
-  // evita lançar duas vezes o mesmo pedido
-  const jaExiste = lista.some((l) => l.origemPedidoId === p.id);
-  if (jaExiste) return;
+    // evita lançar duas vezes o mesmo pedido
+    const jaExiste = lista.some((l) => l.origemPedidoId === p.id);
+    if (jaExiste) return;
 
-  const agora = new Date().toISOString();
+    const agora = new Date().toISOString();
+    const data = p.data || agora;
 
-  const lancamento = {
-    id: uid(),
-    tipo: "receita",
-    status: "pago",
-    descricao: p.descricao,
-    categoria: "Vendas",
-    valor: p.valor,
-    dataCompetencia: p.data || agora,
-    dataPagamento: agora,
-    meioPagamento: p.meioPagamento || "Não informado",
-    origemPedidoId: p.id,
-    clienteNome: p.cliente,
-    criadoEm: agora,
-    observacoes: p.cliente ? `Cliente: ${p.cliente}` : undefined,
-  };
+    const lancamento: FinanceiroEntry = {
+      id: uid(),
+      data,
+      competencia: toCompetencia(data),
+      tipo: "receita",
+      status: "pago",
+      descricao: p.descricao,
+      categoria: "Vendas",
+      forma: p.meioPagamento || "Pix",
+      valor: p.valor,
+      observacoes: p.cliente ? `Pedido de ${p.cliente}` : undefined,
+      origemPedidoId: p.id,
+      clienteNome: p.cliente,
+      createdAt: agora,
+      updatedAt: agora,
+    };
 
-  const novaLista = [lancamento, ...lista];
-  saveJSON(FINANCEIRO_KEY, novaLista);
+    const novaLista: FinanceiroEntry[] = [lancamento, ...lista];
+    saveJSON(FINANCEIRO_KEY, novaLista);
+  } catch (err) {
+    // não deixa erro de financeiro travar o salvamento do pedido
+    console.error("Erro ao registrar receita do pedido:", err);
+  }
 }
 
 export default function PedidosPage() {
@@ -290,21 +394,54 @@ export default function PedidosPage() {
     setLeads(loadJSON<Lead[]>(LEADS_KEY, []));
     setPedidos(loadJSON<Pedido[]>(PEDIDOS_KEY, []));
     setProdutos(loadJSON<Produto[]>(PRODUTOS_KEY, []));
+
+    // 🔄 ajusta descrições antigas do Financeiro
+    migrarDescricoesFinanceiroAntigas();
   }, []);
 
-  function toast(t: string, ms = 1400) {
+  // ✅ Garantir que todo pedido com status "pago" esteja no Financeiro
+  useEffect(() => {
+    if (!pedidos.length) return;
+
+    pedidos.forEach((p) => {
+      if (p.status !== "pago") return;
+
+      const subtotal = (p.itens || []).reduce(
+        (a, it) => a + (Number(it.preco) || 0) * (Number(it.qtd) || 0),
+        0
+      );
+      const total = Math.max(
+        0,
+        subtotal - (Number(p.desconto) || 0) + (Number(p.frete) || 0)
+      );
+
+      if (total > 0) {
+        registrarReceitaDoPedido({
+          id: p.id,
+          descricao: descricaoPedidoFinanceiro(p.id, p.clienteNome, p.numero),
+          valor: total,
+          cliente: p.clienteNome,
+          data: p.updatedAt || p.createdAt,
+        });
+      }
+    });
+  }, [pedidos]);
+
+  function toast(t: string, ms = 1400): void {
     setMsg(t);
-    window.setTimeout(() => setMsg(""), ms);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => setMsg(""), ms);
+    }
   }
 
-  function refresh() {
+  function refresh(): void {
     setLeads(loadJSON<Lead[]>(LEADS_KEY, []));
     setPedidos(loadJSON<Pedido[]>(PEDIDOS_KEY, []));
     setProdutos(loadJSON<Produto[]>(PRODUTOS_KEY, []));
     toast("🔄 Atualizado!");
   }
 
-  function openWhatsApp(tel: string, nome?: string) {
+  function openWhatsApp(tel: string, nome?: string): void {
     const digits = onlyDigits(tel);
     const number =
       digits.length >= 12 && digits.startsWith("55")
@@ -314,18 +451,23 @@ export default function PedidosPage() {
         : digits;
 
     const text = nome ? `Olá ${nome}! Tudo bem?` : "Olá! Tudo bem?";
-    window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, "_blank");
+    const url = `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
+    if (typeof window !== "undefined") {
+      window.open(url, "_blank");
+    }
   }
 
-  function goLead(id: string) {
+  function goLead(id: string): void {
+    if (typeof window === "undefined") return;
     window.location.href = `/crm/leads?focus=${encodeURIComponent(id)}`;
   }
 
-  function goProdutos() {
+  function goProdutos(): void {
+    if (typeof window === "undefined") return;
     window.location.href = `/crm/produtos`;
   }
 
-  function startNewPedido() {
+  function startNewPedido(): void {
     setLeadPick("");
     setClienteNome("");
     setTelefone("");
@@ -369,7 +511,7 @@ export default function PedidosPage() {
   }
 
   // quando escolher lead, preenche dados e itens (perfumes)
-  function onPickLead(leadId: string) {
+  function onPickLead(leadId: string): void {
     setLeadPick(leadId);
     const l = leads.find((x) => x.id === leadId);
     if (!l) return;
@@ -390,7 +532,7 @@ export default function PedidosPage() {
   }
 
   // ✅ ao escolher um produto, preenche nome e preço
-  function onPickProduto(produtoId: string) {
+  function onPickProduto(produtoId: string): void {
     setProdutoPick(produtoId);
     const p = produtos.find((x) => x.id === produtoId);
     if (!p) return;
@@ -404,7 +546,7 @@ export default function PedidosPage() {
     setItemQtd(1);
   }
 
-  function addItem() {
+  function addItem(): void {
     const nome = String(itemNome).trim();
     if (!nome) {
       toast("⚠️ Informe o nome do item/perfume.", 1600);
@@ -424,11 +566,11 @@ export default function PedidosPage() {
     setItemPreco(0);
   }
 
-  function removeItem(idx: number) {
+  function removeItem(idx: number): void {
     setItens((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  function updateItem(idx: number, patch: Partial<PedidoItem>) {
+  function updateItem(idx: number, patch: Partial<PedidoItem>): void {
     setItens((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
   }
 
@@ -443,86 +585,95 @@ export default function PedidosPage() {
     return { subtotal, total };
   }, [itens, desconto, frete]);
 
-  function validatePedido() {
+  function validatePedido(): string {
     if (!clienteNome.trim()) return "Informe o nome do cliente.";
     if (onlyDigits(telefone).length < 10) return "Informe um telefone válido (com DDD).";
     if (!itens.length) return "Adicione pelo menos 1 item.";
     return "";
   }
 
-  function savePedido() {
-    const err = validatePedido();
-    if (err) {
-      toast(`⚠️ ${err}`, 2200);
-      return;
+  function savePedido(): void {
+    try {
+      const err = validatePedido();
+      if (err) {
+        toast(`⚠️ ${err}`, 2200);
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const itensNormalizados = itens.map((x) => ({
+        produtoId: x.produtoId,
+        nome: String(x.nome).trim(),
+        qtd: Math.max(1, Number(x.qtd) || 1),
+        preco: Math.max(0, Number(x.preco) || 0),
+      }));
+
+      const descontoNum = Math.max(0, Number(desconto) || 0);
+      const freteNum = Math.max(0, Number(frete) || 0);
+
+      const subtotal = itensNormalizados.reduce(
+        (acc, it) => acc + (Number(it.preco) || 0) * (Number(it.qtd) || 0),
+        0
+      );
+      const total = Math.max(0, subtotal - descontoNum + freteNum);
+
+      // ✅ gera número sequencial do pedido
+      const numeroPedido = nextPedidoNumero();
+
+      const p: Pedido = {
+        id: uid(),
+        numero: numeroPedido,
+        leadId: leadPick || undefined,
+        clienteNome: clienteNome.trim(),
+        telefone: telefone.trim(),
+        origem,
+        itens: itensNormalizados,
+        desconto: descontoNum,
+        frete: freteNum,
+        status,
+        createdAt: now,
+        updatedAt: now,
+        observacoes: observacoes.trim() || undefined,
+        estoqueBaixado: false,
+      };
+
+      // ✅ baixa estoque se já estiver como pago/enviado/entregue
+      if (shouldBaixarEstoque(p.status)) {
+        ajustarEstoquePorPedido(p, "baixar");
+        p.estoqueBaixado = true;
+      }
+
+      // ✅ se já salvar como "pago", lança no financeiro
+      if (p.status === "pago" && total > 0) {
+        registrarReceitaDoPedido({
+          id: p.id,
+          descricao: descricaoPedidoFinanceiro(p.id, p.clienteNome, p.numero),
+          valor: total,
+          cliente: p.clienteNome,
+          data: p.createdAt,
+        });
+      }
+
+      const next = [p, ...pedidos];
+      setPedidos(next);
+      saveJSON(PEDIDOS_KEY, next);
+
+      // 🔗 sincroniza lead ↔ pedido
+      syncLeadStatusFromPedido(p);
+      setLeads(loadJSON<Lead[]>(LEADS_KEY, []));
+
+      // atualiza produtos na tela também
+      setProdutos(loadJSON<Produto[]>(PRODUTOS_KEY, []));
+
+      toast("✅ Pedido salvo!");
+      setOpen(false);
+    } catch (err) {
+      console.error("Erro ao salvar pedido:", err);
+      toast("⚠️ Não consegui salvar o pedido. Veja o console (F12).");
     }
-
-    const now = new Date().toISOString();
-    const itensNormalizados = itens.map((x) => ({
-      produtoId: x.produtoId,
-      nome: String(x.nome).trim(),
-      qtd: Math.max(1, Number(x.qtd) || 1),
-      preco: Math.max(0, Number(x.preco) || 0),
-    }));
-
-    const descontoNum = Math.max(0, Number(desconto) || 0);
-    const freteNum = Math.max(0, Number(frete) || 0);
-
-    const subtotal = itensNormalizados.reduce(
-      (acc, it) => acc + (Number(it.preco) || 0) * (Number(it.qtd) || 0),
-      0
-    );
-    const total = Math.max(0, subtotal - descontoNum + freteNum);
-
-    const p: Pedido = {
-      id: uid(),
-      leadId: leadPick || undefined,
-      clienteNome: clienteNome.trim(),
-      telefone: telefone.trim(),
-      origem,
-      itens: itensNormalizados,
-      desconto: descontoNum,
-      frete: freteNum,
-      status,
-      createdAt: now,
-      updatedAt: now,
-      observacoes: observacoes.trim() || undefined,
-      estoqueBaixado: false,
-    };
-
-    // ✅ baixa estoque se já estiver como pago/enviado/entregue
-    if (shouldBaixarEstoque(p.status)) {
-      ajustarEstoquePorPedido(p, "baixar");
-      p.estoqueBaixado = true;
-    }
-
-    // ✅ se já salvar como "pago", lança no financeiro
-    if (p.status === "pago" && total > 0) {
-      registrarReceitaDoPedido({
-        id: p.id,
-        descricao: `Venda pedido ${p.id} - ${p.clienteNome}`,
-        valor: total,
-        cliente: p.clienteNome,
-        data: p.createdAt,
-      });
-    }
-
-    const next = [p, ...pedidos];
-    setPedidos(next);
-    saveJSON(PEDIDOS_KEY, next);
-
-    // 🔗 sincroniza lead ↔ pedido
-    syncLeadStatusFromPedido(p);
-    setLeads(loadJSON<Lead[]>(LEADS_KEY, []));
-
-    // atualiza produtos na tela também
-    setProdutos(loadJSON<Produto[]>(PRODUTOS_KEY, []));
-
-    toast("✅ Pedido salvo!");
-    setOpen(false);
   }
 
-  function updatePedidoStatus(id: string, st: StatusPedido) {
+  function updatePedidoStatus(id: string, st: StatusPedido): void {
     const next = pedidos.map((p) => {
       if (p.id !== id) return p;
 
@@ -558,7 +709,11 @@ export default function PedidosPage() {
         if (total > 0) {
           registrarReceitaDoPedido({
             id: updated.id,
-            descricao: `Venda pedido ${updated.id} - ${updated.clienteNome}`,
+            descricao: descricaoPedidoFinanceiro(
+              updated.id,
+              updated.clienteNome,
+              updated.numero
+            ),
             valor: total,
             cliente: updated.clienteNome,
             data: updated.updatedAt,
@@ -578,11 +733,14 @@ export default function PedidosPage() {
     toast("✅ Status atualizado!", 1200);
   }
 
-  function deletePedido(id: string) {
+  function deletePedido(id: string): void {
     const p = pedidos.find((x) => x.id === id);
     if (!p) return;
 
-    if (!confirm("Remover este pedido?")) return;
+    if (typeof window !== "undefined") {
+      const ok = window.confirm("Remover este pedido?");
+      if (!ok) return;
+    }
 
     // ✅ se estava baixado, devolve antes de remover
     if (p.estoqueBaixado) {
@@ -648,7 +806,7 @@ export default function PedidosPage() {
             <label>Status</label>
             <select
               value={statusFiltro}
-              onChange={(e) => setStatusFiltro(e.target.value as any)}
+              onChange={(e) => setStatusFiltro(e.target.value as StatusPedido | "todos")}
               className="selectSmall"
             >
               <option value="todos">Todos</option>
@@ -683,8 +841,14 @@ export default function PedidosPage() {
 
       {!produtosAtivos.length ? (
         <div className="warn">
-          ⚠️ Você ainda não tem produtos cadastrados. Cadastre em <strong>Produtos</strong> para puxar preço e baixar estoque.
-          <button className="btnSmall" onClick={goProdutos} type="button" style={{ marginLeft: 10 }}>
+          ⚠️ Você ainda não tem produtos cadastrados. Cadastre em <strong>Produtos</strong> para puxar preço e baixar
+          estoque.
+          <button
+            className="btnSmall"
+            onClick={goProdutos}
+            type="button"
+            style={{ marginLeft: 10 }}
+          >
             Ir para Produtos
           </button>
         </div>
@@ -708,6 +872,7 @@ export default function PedidosPage() {
           <table className="table">
             <thead>
               <tr>
+                <th>Pedido</th>
                 <th>Cliente</th>
                 <th>Contato</th>
                 <th>Itens</th>
@@ -731,6 +896,8 @@ export default function PedidosPage() {
 
                 return (
                   <tr key={p.id}>
+                    <td className="mono">#{formatNumeroPedido(p.numero)}</td>
+
                     <td>
                       <div className="name">{p.clienteNome}</div>
                       <div className="meta">
@@ -787,12 +954,20 @@ export default function PedidosPage() {
                         </button>
 
                         {p.leadId ? (
-                          <button className="btnSmall" onClick={() => goLead(p.leadId!)} type="button">
+                          <button
+                            className="btnSmall"
+                            onClick={() => goLead(p.leadId!)}
+                            type="button"
+                          >
                             Ver Lead
                           </button>
                         ) : null}
 
-                        <button className="btnDanger" onClick={() => deletePedido(p.id)} type="button">
+                        <button
+                          className="btnDanger"
+                          onClick={() => deletePedido(p.id)}
+                          type="button"
+                        >
                           Remover
                         </button>
                       </div>
@@ -803,7 +978,8 @@ export default function PedidosPage() {
 
               {!pedidosFiltrados.length ? (
                 <tr>
-                  <td colSpan={7} className="empty">
+                  {/* agora são 8 colunas */}
+                  <td colSpan={8} className="empty">
                     Nenhum pedido ainda. Clique em <strong>“+ Criar pedido”</strong>.
                   </td>
                 </tr>
@@ -821,10 +997,17 @@ export default function PedidosPage() {
               <div>
                 <div className="kicker">Maison Noor</div>
                 <div className="modalTitle">Novo pedido</div>
-                <div className="modalSub">Você pode puxar dados de um Lead ou preencher manualmente.</div>
+                <div className="modalSub">
+                  Você pode puxar dados de um Lead ou preencher manualmente.
+                </div>
               </div>
 
-              <button className="x" onClick={() => setOpen(false)} type="button" aria-label="Fechar">
+              <button
+                className="x"
+                onClick={() => setOpen(false)}
+                type="button"
+                aria-label="Fechar"
+              >
                 ✕
               </button>
             </div>
@@ -834,7 +1017,11 @@ export default function PedidosPage() {
                 <div className="boxTitle">Cliente</div>
 
                 <label className="lab">Criar a partir de Lead</label>
-                <select className="select" value={leadPick} onChange={(e) => onPickLead(e.target.value)}>
+                <select
+                  className="select"
+                  value={leadPick}
+                  onChange={(e) => onPickLead(e.target.value)}
+                >
                   <option value="">— Selecionar lead —</option>
                   {leads
                     .slice()
@@ -850,18 +1037,30 @@ export default function PedidosPage() {
                 <div className="row2">
                   <div>
                     <label className="lab">Nome</label>
-                    <input className="input" value={clienteNome} onChange={(e) => setClienteNome(e.target.value)} />
+                    <input
+                      className="input"
+                      value={clienteNome}
+                      onChange={(e) => setClienteNome(e.target.value)}
+                    />
                   </div>
                   <div>
                     <label className="lab">Telefone</label>
-                    <input className="input" value={telefone} onChange={(e) => setTelefone(e.target.value)} />
+                    <input
+                      className="input"
+                      value={telefone}
+                      onChange={(e) => setTelefone(e.target.value)}
+                    />
                   </div>
                 </div>
 
                 <div className="row2">
                   <div>
                     <label className="lab">Origem</label>
-                    <select className="select" value={origem} onChange={(e) => setOrigem(e.target.value as Origem)}>
+                    <select
+                      className="select"
+                      value={origem}
+                      onChange={(e) => setOrigem(e.target.value as Origem)}
+                    >
                       <option value="instagram">Instagram</option>
                       <option value="whatsapp">WhatsApp</option>
                       <option value="indicacao">Indicação</option>
@@ -871,7 +1070,11 @@ export default function PedidosPage() {
                   </div>
                   <div>
                     <label className="lab">Status</label>
-                    <select className="select" value={status} onChange={(e) => setStatus(e.target.value as StatusPedido)}>
+                    <select
+                      className="select"
+                      value={status}
+                      onChange={(e) => setStatus(e.target.value as StatusPedido)}
+                    >
                       {STATUS_PEDIDO_META.map((s) => (
                         <option key={s.v} value={s.v}>
                           {s.label}
@@ -882,7 +1085,11 @@ export default function PedidosPage() {
                 </div>
 
                 <label className="lab">Observações</label>
-                <textarea className="textarea" value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
+                <textarea
+                  className="textarea"
+                  value={observacoes}
+                  onChange={(e) => setObservacoes(e.target.value)}
+                />
               </div>
 
               <div className="box">
@@ -890,7 +1097,11 @@ export default function PedidosPage() {
 
                 {/* ✅ Picker de Produtos */}
                 <label className="lab">Adicionar a partir de Produtos</label>
-                <select className="select" value={produtoPick} onChange={(e) => onPickProduto(e.target.value)}>
+                <select
+                  className="select"
+                  value={produtoPick}
+                  onChange={(e) => onPickProduto(e.target.value)}
+                >
                   <option value="">— Selecionar produto —</option>
                   {produtosAtivos.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -923,7 +1134,11 @@ export default function PedidosPage() {
                     value={itemPreco}
                     onChange={(e) => setItemPreco(Number(e.target.value))}
                   />
-                  <button className="btnSmall" onClick={addItem} type="button">
+                  <button
+                    className="btnSmall"
+                    onClick={addItem}
+                    type="button"
+                  >
                     Adicionar
                   </button>
                 </div>
@@ -942,7 +1157,9 @@ export default function PedidosPage() {
                           type="number"
                           min={1}
                           value={it.qtd}
-                          onChange={(e) => updateItem(idx, { qtd: Number(e.target.value) })}
+                          onChange={(e) =>
+                            updateItem(idx, { qtd: Number(e.target.value) })
+                          }
                         />
                         <input
                           className="input"
@@ -950,15 +1167,23 @@ export default function PedidosPage() {
                           min={0}
                           step="0.01"
                           value={it.preco}
-                          onChange={(e) => updateItem(idx, { preco: Number(e.target.value) })}
+                          onChange={(e) =>
+                            updateItem(idx, { preco: Number(e.target.value) })
+                          }
                         />
-                        <button className="btnDanger" onClick={() => removeItem(idx)} type="button">
+                        <button
+                          className="btnDanger"
+                          onClick={() => removeItem(idx)}
+                          type="button"
+                        >
                           Remover
                         </button>
                       </div>
                     ))
                   ) : (
-                    <div className="emptyBox">Sem itens ainda. Se escolher um Lead, os perfumes entram aqui.</div>
+                    <div className="emptyBox">
+                      Sem itens ainda. Se escolher um Lead, os perfumes entram aqui.
+                    </div>
                   )}
                 </div>
 
@@ -999,10 +1224,18 @@ export default function PedidosPage() {
                 </div>
 
                 <div className="modalActions">
-                  <button className="btn" onClick={() => setOpen(false)} type="button">
+                  <button
+                    className="btn"
+                    onClick={() => setOpen(false)}
+                    type="button"
+                  >
                     Cancelar
                   </button>
-                  <button className="btnPrimary" onClick={savePedido} type="button">
+                  <button
+                    className="btnPrimary"
+                    onClick={savePedido}
+                    type="button"
+                  >
                     Salvar pedido
                   </button>
                 </div>
@@ -1013,7 +1246,9 @@ export default function PedidosPage() {
       ) : null}
 
       <style jsx>{`
-        .page { padding: 24px; }
+        .page {
+          padding: 24px;
+        }
         .kicker {
           font-size: 12px;
           letter-spacing: 0.14em;
@@ -1021,8 +1256,14 @@ export default function PedidosPage() {
           color: rgba(200, 162, 106, 0.95);
           font-weight: 800;
         }
-        .title { margin: 6px 0 0; font-size: 28px; }
-        .sub { margin: 8px 0 0; opacity: 0.75; }
+        .title {
+          margin: 6px 0 0;
+          font-size: 28px;
+        }
+        .sub {
+          margin: 8px 0 0;
+          opacity: 0.75;
+        }
 
         .head {
           display: flex;
@@ -1033,9 +1274,18 @@ export default function PedidosPage() {
           padding: 16px;
           border-radius: 18px;
           border: 1px solid rgba(200, 162, 106, 0.18);
-          background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+          background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.03),
+            rgba(255, 255, 255, 0.01)
+          );
         }
-        .headRight { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .headRight {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
 
         .filterBox {
           display: grid;
@@ -1052,16 +1302,19 @@ export default function PedidosPage() {
           opacity: 0.75;
           font-weight: 900;
         }
-        .selectSmall, .inputSmall {
+        .selectSmall,
+        .inputSmall {
           padding: 10px 12px;
           border-radius: 14px;
-          border: 1px solid rgba(255,255,255,0.12);
+          border: 1px solid rgba(255, 255, 255, 0.12);
           background: rgba(15, 15, 22, 0.9);
           color: #f2f2f2;
           outline: none;
           min-width: 180px;
         }
-        .inputSmall { min-width: 240px; }
+        .inputSmall {
+          min-width: 240px;
+        }
 
         .btn {
           padding: 12px 14px;
@@ -1076,7 +1329,11 @@ export default function PedidosPage() {
           padding: 12px 14px;
           border-radius: 14px;
           border: 1px solid rgba(200, 162, 106, 0.45);
-          background: linear-gradient(180deg, rgba(200, 162, 106, 0.18), rgba(200, 162, 106, 0.08));
+          background: linear-gradient(
+            180deg,
+            rgba(200, 162, 106, 0.18),
+            rgba(200, 162, 106, 0.08)
+          );
           cursor: pointer;
           font-weight: 900;
           color: #f2f2f2;
@@ -1112,7 +1369,7 @@ export default function PedidosPage() {
           max-width: 980px;
         }
 
-        .warn{
+        .warn {
           margin-top: 12px;
           padding: 12px 14px;
           border-radius: 14px;
@@ -1135,14 +1392,25 @@ export default function PedidosPage() {
           border: 1px solid rgba(200, 162, 106, 0.16);
           background: rgba(200, 162, 106, 0.06);
         }
-        .statLabel { font-size: 12px; opacity: 0.8; }
-        .statValue { margin-top: 8px; font-size: 18px; font-weight: 900; }
+        .statLabel {
+          font-size: 12px;
+          opacity: 0.8;
+        }
+        .statValue {
+          margin-top: 8px;
+          font-size: 18px;
+          font-weight: 900;
+        }
 
         .card {
           margin-top: 14px;
           border-radius: 18px;
           border: 1px solid rgba(200, 162, 106, 0.18);
-          background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+          background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.03),
+            rgba(255, 255, 255, 0.01)
+          );
           padding: 14px;
           overflow-x: hidden;
         }
@@ -1159,7 +1427,7 @@ export default function PedidosPage() {
           width: 100%;
           overflow-x: auto;
           border-radius: 16px;
-          border: 1px solid rgba(255,255,255,0.08);
+          border: 1px solid rgba(255, 255, 255, 0.08);
           background: rgba(0, 0, 0, 0.14);
         }
         .table {
@@ -1167,9 +1435,10 @@ export default function PedidosPage() {
           border-collapse: collapse;
           min-width: 880px;
         }
-        th, td {
+        th,
+        td {
           padding: 12px;
-          border-bottom: 1px solid rgba(255,255,255,0.06);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
           vertical-align: top;
         }
         th {
@@ -1180,12 +1449,24 @@ export default function PedidosPage() {
           text-align: left;
           white-space: nowrap;
         }
-        .name { font-weight: 900; }
-        .meta { margin-top: 6px; font-size: 12px; opacity: 0.7; }
-        .mono {
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        .name {
+          font-weight: 900;
         }
-        .items { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+        .meta {
+          margin-top: 6px;
+          font-size: 12px;
+          opacity: 0.7;
+        }
+        .mono {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+            "Liberation Mono", "Courier New", monospace;
+        }
+        .items {
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
         .chip {
           font-size: 11px;
           padding: 4px 9px;
@@ -1194,26 +1475,37 @@ export default function PedidosPage() {
           background: rgba(200, 162, 106, 0.06);
           white-space: nowrap;
         }
-        .more { font-size: 12px; opacity: 0.75; }
+        .more {
+          font-size: 12px;
+          opacity: 0.75;
+        }
         .selectInline {
           padding: 10px 12px;
           border-radius: 14px;
-          border: 1px solid rgba(255,255,255,0.12);
+          border: 1px solid rgba(255, 255, 255, 0.12);
           background: rgba(15, 15, 22, 0.9);
           color: #f2f2f2;
           outline: none;
         }
-        .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-        .empty { padding: 16px; opacity: 0.7; text-align: center; }
+        .actions {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .empty {
+          padding: 16px;
+          opacity: 0.7;
+          text-align: center;
+        }
 
-        .pillOk{
-          display:inline-block;
-          margin-left:8px;
-          padding:4px 8px;
-          border-radius:999px;
-          border: 1px solid rgba(200,162,106,0.22);
-          background: rgba(200,162,106,0.08);
-          color: rgba(200,162,106,0.95);
+        .pillOk {
+          display: inline-block;
+          margin-left: 8px;
+          padding: 4px 8px;
+          border-radius: 999px;
+          border: 1px solid rgba(200, 162, 106, 0.22);
+          background: rgba(200, 162, 106, 0.08);
+          color: rgba(200, 162, 106, 0.95);
           font-weight: 900;
           font-size: 11px;
         }
@@ -1222,7 +1514,7 @@ export default function PedidosPage() {
         .modalOverlay {
           position: fixed;
           inset: 0;
-          background: rgba(0,0,0,0.55);
+          background: rgba(0, 0, 0, 0.55);
           display: grid;
           place-items: center;
           padding: 20px;
@@ -1230,12 +1522,12 @@ export default function PedidosPage() {
         }
         .modal {
           width: min(1100px, 98vw);
-          max-height: 90vh;           /* ✅ não deixa passar da tela */
-          overflow-y: auto;           /* ✅ scroll interno se passar */
+          max-height: 90vh; /* ✅ não deixa passar da tela */
+          overflow-y: auto; /* ✅ scroll interno se passar */
           border-radius: 18px;
           border: 1px solid rgba(200, 162, 106, 0.22);
           background: rgba(10, 10, 14, 0.92);
-          box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+          box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
           padding: 14px;
           display: flex;
           flex-direction: column;
@@ -1247,11 +1539,18 @@ export default function PedidosPage() {
           align-items: flex-start;
           padding: 10px;
         }
-        .modalTitle { font-size: 18px; font-weight: 900; margin-top: 4px; }
-        .modalSub { margin-top: 6px; opacity: 0.75; }
+        .modalTitle {
+          font-size: 18px;
+          font-weight: 900;
+          margin-top: 4px;
+        }
+        .modalSub {
+          margin-top: 6px;
+          opacity: 0.75;
+        }
         .x {
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.06);
           color: #f2f2f2;
           border-radius: 12px;
           padding: 10px 12px;
@@ -1265,12 +1564,14 @@ export default function PedidosPage() {
           padding: 10px;
         }
         @media (min-width: 980px) {
-          .modalGrid { grid-template-columns: 1fr 1.2fr; }
+          .modalGrid {
+            grid-template-columns: 1fr 1.2fr;
+          }
         }
         .box {
           border-radius: 16px;
           border: 1px solid rgba(200, 162, 106, 0.18);
-          background: rgba(0,0,0,0.18);
+          background: rgba(0, 0, 0, 0.18);
           padding: 12px;
         }
         .boxTitle {
@@ -1290,17 +1591,22 @@ export default function PedidosPage() {
           opacity: 0.8;
           font-weight: 900;
         }
-        .input, .select, .textarea {
+        .input,
+        .select,
+        .textarea {
           width: 100%;
           padding: 12px 12px;
           border-radius: 14px;
-          border: 1px solid rgba(255,255,255,0.12);
+          border: 1px solid rgba(255, 255, 255, 0.12);
           background: rgba(15, 15, 22, 0.9);
           color: #f2f2f2;
           outline: none;
           margin-top: 6px;
         }
-        .textarea { min-height: 96px; resize: vertical; }
+        .textarea {
+          min-height: 96px;
+          resize: vertical;
+        }
         .row2 {
           display: grid;
           grid-template-columns: 1fr;
@@ -1308,7 +1614,9 @@ export default function PedidosPage() {
           margin-top: 10px;
         }
         @media (min-width: 720px) {
-          .row2 { grid-template-columns: 1fr 1fr; }
+          .row2 {
+            grid-template-columns: 1fr 1fr;
+          }
         }
         .row3 {
           display: grid;
@@ -1318,10 +1626,18 @@ export default function PedidosPage() {
           margin-top: 8px;
         }
         @media (max-width: 900px) {
-          .row3 { grid-template-columns: 1fr 90px 140px; }
-          .row3 button { grid-column: 1 / -1; }
+          .row3 {
+            grid-template-columns: 1fr 90px 140px;
+          }
+          .row3 button {
+            grid-column: 1 / -1;
+          }
         }
-        .itemsList { margin-top: 12px; display: grid; gap: 10px; }
+        .itemsList {
+          margin-top: 12px;
+          display: grid;
+          gap: 10px;
+        }
         .itemRow {
           display: grid;
           grid-template-columns: 1fr 90px 140px 120px;
@@ -1329,13 +1645,17 @@ export default function PedidosPage() {
           align-items: center;
         }
         @media (max-width: 900px) {
-          .itemRow { grid-template-columns: 1fr 90px 140px; }
-          .itemRow button { grid-column: 1 / -1; }
+          .itemRow {
+            grid-template-columns: 1fr 90px 140px;
+          }
+          .itemRow button {
+            grid-column: 1 / -1;
+          }
         }
         .emptyBox {
           padding: 12px;
           border-radius: 14px;
-          border: 1px dashed rgba(255,255,255,0.18);
+          border: 1px dashed rgba(255, 255, 255, 0.18);
           opacity: 0.75;
         }
         .totals {
@@ -1352,7 +1672,9 @@ export default function PedidosPage() {
           align-items: center;
           font-weight: 800;
         }
-        .tot { color: rgba(200, 162, 106, 0.95); }
+        .tot {
+          color: rgba(200, 162, 106, 0.95);
+        }
         .modalActions {
           margin-top: 12px;
           display: flex;

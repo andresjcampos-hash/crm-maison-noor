@@ -50,6 +50,22 @@ export default function HomePage() {
           <Link className="btn" href="/crm/leads">
             Ver Leads
           </Link>
+
+          <Link className="btn" href="/crm/pedidos">
+            Ver Pedidos
+          </Link>
+
+          <Link className="btn" href="/crm/financeiro">
+            Financeiro
+          </Link>
+
+          <Link className="btn" href="/crm/produtos">
+            Produtos
+          </Link>
+
+          <Link className="btn" href="/crm/tarefas">
+            Tarefas
+          </Link>
         </div>
 
         <p className="muted" style={{ marginTop: 20, fontSize: 13 }}>
