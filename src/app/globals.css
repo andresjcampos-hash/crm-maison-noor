@@ -223,4 +223,62 @@ label{font-size:12px;color:var(--muted)}
 .muted{color:var(--muted)}
 .h1{font-size:22px;margin:0 0 10px}
 .h2{font-size:16px;margin:0 0 10px;color:var(--muted)}
-  
+
+/* =====================================================
+   AJUSTES GERAIS DE MOBILE (CRM + site todo)
+   - deixa tudo proporcional no celular
+   - garante espaço pros botões no final da página
+===================================================== */
+@media (max-width: 768px) {
+  html,
+  body {
+    font-size: 14px;
+    overflow-x: hidden; /* evita rolagem lateral */
+  }
+
+  body {
+    /* leve simplificada no fundo para telas pequenas */
+    background:
+      radial-gradient(900px 400px at 20% -10%, rgba(208,168,92,.25), transparent 55%),
+      var(--bg);
+  }
+
+  main {
+    padding-bottom: 80px; /* espaço extra p/ botões fixos, bottom nav, etc. */
+  }
+
+  .container {
+    padding: 16px 14px;
+  }
+
+  .card {
+    padding: 12px;
+  }
+
+  .table {
+    min-width: 720px; /* continua com scroll horizontal, mas menos exagerado no mobile */
+  }
+
+  .table th,
+  .table td {
+    padding: 8px;
+    font-size: 13px;
+  }
+
+  .actions-wrap {
+    flex-wrap: wrap;        /* evita estourar pra fora da tela */
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .btn {
+    font-size: 13px;
+    padding: 7px 10px;
+  }
+
+  .input,
+  .select,
+  textarea {
+    font-size: 14px;
+  }
+}

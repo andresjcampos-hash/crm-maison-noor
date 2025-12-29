@@ -19,7 +19,9 @@ export default function CrmLayout({ children }: { children: ReactNode }) {
 
               <div className="brandLine" aria-hidden />
               {/* Aqui eu só incluí Financeiro na frase */}
-              <div className="brandHint">Vendas • Leads • Estoque • Financeiro</div>
+              <div className="brandHint">
+                Vendas • Leads • Estoque • Financeiro
+              </div>
             </div>
 
             {/* Sidebar / Menu */}
@@ -45,10 +47,19 @@ export default function CrmLayout({ children }: { children: ReactNode }) {
             display: grid;
             grid-template-columns: 300px 1fr;
             background:
-              radial-gradient(1200px 600px at 20% -10%, rgba(200, 162, 106, 0.14), transparent 60%),
-              radial-gradient(900px 500px at 90% 10%, rgba(200, 162, 106, 0.1), transparent 55%),
+              radial-gradient(
+                1200px 600px at 20% -10%,
+                rgba(200, 162, 106, 0.14),
+                transparent 60%
+              ),
+              radial-gradient(
+                900px 500px at 90% 10%,
+                rgba(200, 162, 106, 0.1),
+                transparent 55%
+              ),
               rgba(8, 8, 12, 1);
             color: #f2f2f2;
+            overflow-x: hidden;
           }
 
           /* Sidebar (Glass) */
@@ -58,8 +69,16 @@ export default function CrmLayout({ children }: { children: ReactNode }) {
             height: 100vh;
             border-right: 1px solid rgba(200, 162, 106, 0.16);
             background:
-              radial-gradient(900px 380px at 20% 0%, rgba(200, 162, 106, 0.1), transparent 60%),
-              linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+              radial-gradient(
+                900px 380px at 20% 0%,
+                rgba(200, 162, 106, 0.1),
+                transparent 60%
+              ),
+              linear-gradient(
+                180deg,
+                rgba(255, 255, 255, 0.06),
+                rgba(255, 255, 255, 0.02)
+              );
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             overflow: hidden;
@@ -108,7 +127,11 @@ export default function CrmLayout({ children }: { children: ReactNode }) {
             border-radius: 18px;
             border: 1px solid rgba(200, 162, 106, 0.18);
             background:
-              radial-gradient(700px 220px at 10% 0%, rgba(200, 162, 106, 0.14), transparent 55%),
+              radial-gradient(
+                700px 220px at 10% 0%,
+                rgba(200, 162, 106, 0.14),
+                transparent 55%
+              ),
               rgba(0, 0, 0, 0.2);
             box-shadow:
               0 10px 30px rgba(0, 0, 0, 0.35),
@@ -196,13 +219,17 @@ export default function CrmLayout({ children }: { children: ReactNode }) {
           /* Conteúdo */
           .crmMain {
             min-width: 0;
+            display: block;
           }
 
           .crmMainInner {
             padding: 22px;
+            max-width: 1120px;
+            margin: 0 auto;
+            box-sizing: border-box;
           }
 
-          /* Mobile: sidebar vira topo e fica elegante */
+          /* Mobile: sidebar vira topo e layout ocupa largura toda */
           @media (max-width: 900px) {
             .crmShell {
               grid-template-columns: 1fr;
@@ -228,7 +255,7 @@ export default function CrmLayout({ children }: { children: ReactNode }) {
             }
 
             .crmMainInner {
-              padding: 16px;
+              padding: 16px 12px 80px; /* espaço extra embaixo p/ botões e bottom nav */
             }
           }
         `}</style>
