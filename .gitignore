@@ -1,1 +1,17 @@
-node_modules
+# Build do Next.js (não versionar)
+.next/
+out/
+dist/
+
+# Dependências
+node_modules/
+
+# Arquivos de ambiente (sensíveis)
+.env
+.env.local
+.env.development
+.env.production
+
+# Sistema / Editor
+.DS_Store
+.vscode/

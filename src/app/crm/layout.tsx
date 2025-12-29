@@ -12,20 +12,20 @@ export default function CrmLayout({ children }: { children: ReactNode }) {
       <div className="crmShell">
         <aside className="crmNav" aria-label="Navegação CRM">
           <div className="crmNavInner">
+            
+            {/* ----------- LOGO + TÍTULO ----------- */}
             <div className="brand">
               <div className="brandTop">
-                {/* Logo Maison Noor */}
                 <div className="brandLogoWrap">
                   <Image
                     src="/logo-maison-noor.png"
-                    alt="Maison Noor Parfums"
-                    width={40}
-                    height={40}
+                    alt="Logo Maison Noor"
+                    width={38}
+                    height={38}
                     className="brandLogo"
                   />
                 </div>
 
-                {/* Nome + CRM */}
                 <div className="brandText">
                   <div className="kicker">Maison Noor</div>
                   <div className="title">CRM</div>
@@ -33,268 +33,150 @@ export default function CrmLayout({ children }: { children: ReactNode }) {
               </div>
 
               <div className="brandLine" aria-hidden />
-              {/* Aqui eu só incluí Financeiro na frase */}
-              <div className="brandHint">
-                Vendas • Leads • Estoque • Financeiro
-              </div>
+              <div className="brandHint">Vendas • Leads • Estoque • Financeiro</div>
             </div>
 
-            {/* Sidebar / Menu */}
+
+            {/* ----------- MENU PRINCIPAL ----------- */}
             <Nav />
 
+
+            {/* ----------- RODAPÉ / STATUS DO SISTEMA ----------- */}
             <div className="navFooter">
               <div className="navFooterLine" aria-hidden />
               <div className="navFooterText">
                 <span className="dot" aria-hidden />
-                {/* texto mais coerente pro seu uso com a Val */}
-                <span className="muted">Uso interno • André &amp; Val</span>
+                <span className="muted">Ambiente: Produção</span>
               </div>
             </div>
           </div>
         </aside>
 
+
+        {/* ----------- CONTEÚDO PRINCIPAL ----------- */}
         <main className="crmMain">
           <div className="crmMainInner">{children}</div>
         </main>
 
+
+        {/* ----------- ESTILOS ----------- */}
         <style jsx>{`
           .crmShell {
             min-height: 100vh;
             display: grid;
             grid-template-columns: 300px 1fr;
             background:
-              radial-gradient(
-                1200px 600px at 20% -10%,
-                rgba(200, 162, 106, 0.14),
-                transparent 60%
-              ),
-              radial-gradient(
-                900px 500px at 90% 10%,
-                rgba(200, 162, 106, 0.1),
-                transparent 55%
-              ),
-              rgba(8, 8, 12, 1);
+              radial-gradient(1200px 600px at 20% -10%, rgba(200,162,106,0.14), transparent 60%),
+              radial-gradient(900px 500px at 90% 10%, rgba(200,162,106,0.1), transparent 55%),
+              #08080c;
             color: #f2f2f2;
-            overflow-x: hidden;
           }
 
-          /* Sidebar (Glass) */
           .crmNav {
             position: sticky;
             top: 0;
             height: 100vh;
             border-right: 1px solid rgba(200, 162, 106, 0.16);
-            background:
-              radial-gradient(
-                900px 380px at 20% 0%,
-                rgba(200, 162, 106, 0.1),
-                transparent 60%
-              ),
-              linear-gradient(
-                180deg,
-                rgba(255, 255, 255, 0.06),
-                rgba(255, 255, 255, 0.02)
-              );
+            background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
             backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            overflow: hidden;
-          }
-
-          /* brilho lateral */
-          .crmNav::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-            background: linear-gradient(
-              90deg,
-              rgba(200, 162, 106, 0.08),
-              transparent 35%,
-              transparent 65%,
-              rgba(255, 255, 255, 0.02)
-            );
           }
 
           .crmNavInner {
-            position: relative;
             height: 100%;
             padding: 18px;
             display: grid;
             gap: 14px;
-            align-content: start;
-            overflow: auto;
+            overflow-y: auto;
           }
 
-          /* Scroll bonito (Chromium) */
-          .crmNavInner::-webkit-scrollbar {
-            width: 10px;
-          }
-          .crmNavInner::-webkit-scrollbar-thumb {
-            background: rgba(200, 162, 106, 0.18);
-            border-radius: 999px;
-            border: 3px solid rgba(0, 0, 0, 0.35);
-          }
-          .crmNavInner::-webkit-scrollbar-track {
-            background: rgba(0, 0, 0, 0.18);
-          }
-
-          .brand {
-            padding: 14px;
-            border-radius: 18px;
-            border: 1px solid rgba(200, 162, 106, 0.18);
-            background:
-              radial-gradient(
-                700px 220px at 10% 0%,
-                rgba(200, 162, 106, 0.14),
-                transparent 55%
-              ),
-              rgba(0, 0, 0, 0.2);
-            box-shadow:
-              0 10px 30px rgba(0, 0, 0, 0.35),
-              inset 0 1px 0 rgba(255, 255, 255, 0.04);
-          }
-
+          /* ----- LOGO REDONDA ----- */
           .brandTop {
             display: flex;
-            gap: 10px;
             align-items: center;
+            gap: 10px;
           }
 
           .brandLogoWrap {
-            width: 40px;
-            height: 40px;
+            width: 42px;
+            height: 42px;
             border-radius: 999px;
             overflow: hidden;
-            border: 1px solid rgba(200, 162, 106, 0.5);
-            background: #050506;
-            flex-shrink: 0;
+            border: 1px solid rgba(200,162,106,0.55);
+            background: radial-gradient(circle at 30% 0, rgba(255,255,255,0.2), rgba(200,162,106,0.06));
+            display: flex;
+            align-items: center;
+            justify-content: center;
           }
 
           .brandLogo {
             width: 100%;
             height: 100%;
             object-fit: cover;
+            border-radius: 999px;
           }
 
-          .brandText {
-            display: grid;
-            gap: 4px;
-          }
+          .brandText { display: grid; gap: 4px; }
 
           .kicker {
             font-size: 11px;
-            letter-spacing: 0.14em;
             text-transform: uppercase;
-            color: rgba(200, 162, 106, 0.95);
+            color: rgba(200,162,106,0.95);
             font-weight: 900;
+            letter-spacing: .14em;
           }
 
           .title {
             font-size: 20px;
-            font-weight: 950;
-            letter-spacing: 0.02em;
-            line-height: 1.1;
-            background: linear-gradient(
-              180deg,
-              rgba(255, 255, 255, 0.98),
-              rgba(200, 162, 106, 0.92)
-            );
+            font-weight: 900;
+            background: linear-gradient(180deg,#fff,rgba(200,162,106,0.92));
             -webkit-background-clip: text;
-            background-clip: text;
             color: transparent;
           }
 
           .brandLine {
-            margin-top: 12px;
+            margin-top: 10px;
             height: 1px;
-            background: linear-gradient(
-              90deg,
-              rgba(200, 162, 106, 0.35),
-              rgba(255, 255, 255, 0.06),
-              rgba(200, 162, 106, 0.2)
-            );
-            opacity: 0.8;
+            background: linear-gradient(90deg, rgba(200,162,106,0.35), rgba(255,255,255,0.06), rgba(200,162,106,0.2));
           }
 
           .brandHint {
-            margin-top: 10px;
             font-size: 12px;
-            opacity: 0.75;
-            letter-spacing: 0.02em;
+            opacity: .75;
+            margin-top: 10px;
           }
 
+          /* ----- RODAPÉ ----- */
           .navFooter {
             margin-top: auto;
-            padding: 10px 6px 2px;
-            display: grid;
-            gap: 10px;
-          }
-          .navFooterLine {
-            height: 1px;
-            background: rgba(255, 255, 255, 0.06);
+            padding-top: 8px;
           }
           .navFooterText {
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-size: 12px;
+            gap: 8px;
+            font-size: 11px;
+            opacity: .8;
           }
           .dot {
             width: 8px;
             height: 8px;
-            border-radius: 999px;
-            background: rgba(200, 162, 106, 0.75);
-            box-shadow: 0 0 0 3px rgba(200, 162, 106, 0.12);
-          }
-          .muted {
-            opacity: 0.7;
-            font-weight: 900;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            font-size: 10px;
+            border-radius: 50%;
+            background: rgba(200, 162, 106, .75);
           }
 
-          /* Conteúdo */
-          .crmMain {
-            min-width: 0;
-            display: block;
-          }
-
+          /* ----- CONTEÚDO ----- */
           .crmMainInner {
             padding: 22px;
             max-width: 1120px;
             margin: 0 auto;
-            box-sizing: border-box;
           }
 
-          /* Mobile: sidebar vira topo e layout ocupa largura toda */
+          /* ----- MOBILE ----- */
           @media (max-width: 900px) {
-            .crmShell {
-              grid-template-columns: 1fr;
-            }
-
-            .crmNav {
-              position: sticky;
-              top: 0;
-              height: auto;
-              border-right: none;
-              border-bottom: 1px solid rgba(200, 162, 106, 0.16);
-              z-index: 20;
-            }
-
-            .crmNavInner {
-              padding: 14px;
-              overflow: visible;
-            }
-
-            .brand {
-              padding: 12px;
-              border-radius: 16px;
-            }
-
-            .crmMainInner {
-              padding: 16px 12px 80px; /* espaço extra embaixo p/ botões e bottom nav */
-            }
+            .crmShell { grid-template-columns: 1fr; }
+            .crmNav { height: auto; }
+            .brandLogoWrap { width: 36px; height: 36px; }
+            .crmMainInner { padding-bottom: 90px; }
           }
         `}</style>
       </div>
