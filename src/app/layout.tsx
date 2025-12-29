@@ -1,3 +1,4 @@
+// app/layout.tsx
 import "./globals.css";
 import type { Metadata } from "next";
 
@@ -6,16 +7,20 @@ export const metadata: Metadata = {
   description: "CRM premium (preto & bronze)",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="pt-BR">
       <body
         className="
-          min-h-screen 
-          bg-black 
-          text-zinc-200 
-          antialiased 
-          selection:bg-amber-500 
+          min-h-screen
+          bg-black
+          text-zinc-200
+          antialiased
+          selection:bg-amber-500
           selection:text-black
         "
       >

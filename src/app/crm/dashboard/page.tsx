@@ -56,7 +56,6 @@ const ORIGENS_VALIDAS = [
   "outros",
 ] as const;
 
-// type-guard para não cair em "any index"
 function isOrigem(v: unknown): v is Origem {
   return ORIGENS_VALIDAS.includes(v as Origem);
 }
@@ -80,7 +79,6 @@ export default function DashboardPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [msg, setMsg] = useState("");
 
-  // filtros
   const [range, setRange] = useState<"hoje" | "7d" | "30d" | "tudo">("30d");
   const [origemFiltro, setOrigemFiltro] = useState<Origem | "todas">("todas");
 
@@ -177,7 +175,7 @@ export default function DashboardPage() {
 
     const totalEstimado = filtered.reduce(
       (acc, l) => acc + (Number(l.valorEstimado) || 0),
-      0,
+      0
     );
 
     const byStatusCount: Record<Status, number> = {
@@ -241,13 +239,12 @@ export default function DashboardPage() {
 
     const maxStatusCount = Math.max(1, ...Object.values(byStatusCount));
 
-    // Leads Quentes
     const now = Date.now();
     const score = (l: Lead) => {
       const baseDate = new Date(l.updatedAt || l.createdAt).getTime();
       const recencyDays = Math.max(
         0,
-        (now - baseDate) / (1000 * 60 * 60 * 24),
+        (now - baseDate) / (1000 * 60 * 60 * 24)
       );
       const recencyScore = Math.max(0, 20 - recencyDays);
 
@@ -379,9 +376,7 @@ export default function DashboardPage() {
         <div className="stat">
           <div className="statLabel">Valor estimado (período)</div>
           <div className="statValue">
-            {metrics.totalLeads
-              ? formatBRL(metrics.totalEstimado)
-              : "—"}
+            {metrics.totalLeads ? formatBRL(metrics.totalEstimado) : "—"}
           </div>
         </div>
 
@@ -417,9 +412,7 @@ export default function DashboardPage() {
       <section className="grid">
         {/* 🔥 Leads quentes */}
         <div className="card wide">
-          <div className="cardTitle">
-            🔥 Leads quentes (prioridade)
-          </div>
+          <div className="cardTitle">🔥 Leads quentes (prioridade)</div>
           <div className="hint">
             Ações rápidas: WhatsApp, copiar telefone, abrir lead, ver no
             Kanban.
@@ -446,9 +439,8 @@ export default function DashboardPage() {
                         {origemLabel(l.origem)} •{" "}
                         <span className="chip">
                           {
-                            STATUS_META.find(
-                              (s) => s.v === l.status,
-                            )?.label || l.status
+                            STATUS_META.find((s) => s.v === l.status)
+                              ?.label || l.status
                           }
                         </span>
                       </div>
@@ -460,13 +452,11 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="hotPerf">
-                    {(l.perfumes || [])
-                      .slice(0, 4)
-                      .map((p: string) => (
-                        <span className="chip" key={p}>
-                          {p}
-                        </span>
-                      ))}
+                    {(l.perfumes || []).slice(0, 4).map((p: string) => (
+                      <span className="chip" key={p}>
+                        {p}
+                      </span>
+                    ))}
                     {(l.perfumes || []).length > 4 ? (
                       <span className="more">
                         +{(l.perfumes || []).length - 4}
@@ -483,9 +473,7 @@ export default function DashboardPage() {
                   <div className="hotActions">
                     <button
                       className="btnPrimarySmall"
-                      onClick={() =>
-                        openWhatsApp(l.telefone, l.nome)
-                      }
+                      onClick={() => openWhatsApp(l.telefone, l.nome)}
                       type="button"
                     >
                       Abrir WhatsApp
@@ -506,15 +494,14 @@ export default function DashboardPage() {
                     </button>
 
                     <div className="score">
-                      Prioridade:{" "}
-                      <strong>{Math.round(l._score)}</strong>
+                      Prioridade: <strong>{Math.round(l._score)}</strong>
                     </div>
                   </div>
 
                   <div className="hotFoot">
                     Atualizado:{" "}
                     {new Date(
-                      l.updatedAt || l.createdAt,
+                      l.updatedAt || l.createdAt
                     ).toLocaleString("pt-BR")}
                   </div>
                 </div>
@@ -536,7 +523,7 @@ export default function DashboardPage() {
               const count = metrics.byStatusCount[s.v] || 0;
               const value = metrics.byStatusValue[s.v] || 0;
               const w = Math.round(
-                (count / metrics.maxStatusCount) * 100,
+                (count / metrics.maxStatusCount) * 100
               );
 
               return (
@@ -586,33 +573,27 @@ export default function DashboardPage() {
           <div className="cardTitle">Origens (no filtro)</div>
 
           <div className="origens">
-            {(Object.keys(metrics.byOrigemCount) as Origem[]).map(
-              (o) => {
-                const c = metrics.byOrigemCount[o] || 0;
-                const pct = metrics.totalLeads
-                  ? (c / metrics.totalLeads) * 100
-                  : 0;
-                return (
-                  <div key={o} className="origemItem">
-                    <div className="origemTop">
-                      <div className="origemName">
-                        {ORIGEM_LABEL[o]}
-                      </div>
-                      <div className="origemCount">{c}</div>
-                    </div>
-                    <div className="origemBarWrap">
-                      <div
-                        className="origemBar"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <div className="origemPct">
-                      {pct.toFixed(0)}%
-                    </div>
+            {(Object.keys(metrics.byOrigemCount) as Origem[]).map((o) => {
+              const c = metrics.byOrigemCount[o] || 0;
+              const pct = metrics.totalLeads
+                ? (c / metrics.totalLeads) * 100
+                : 0;
+              return (
+                <div key={o} className="origemItem">
+                  <div className="origemTop">
+                    <div className="origemName">{ORIGEM_LABEL[o]}</div>
+                    <div className="origemCount">{c}</div>
                   </div>
-                );
-              },
-            )}
+                  <div className="origemBarWrap">
+                    <div
+                      className="origemBar"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="origemPct">{pct.toFixed(0)}%</div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -629,9 +610,7 @@ export default function DashboardPage() {
                 </div>
               ))
             ) : (
-              <div className="empty">
-                Ainda sem dados de perfumes.
-              </div>
+              <div className="empty">Ainda sem dados de perfumes.</div>
             )}
           </div>
 
@@ -659,37 +638,30 @@ export default function DashboardPage() {
                 {metrics.filtered
                   .slice()
                   .sort((a, b) =>
-                    (b.updatedAt || "").localeCompare(
-                      a.updatedAt || "",
-                    ),
+                    (b.updatedAt || "").localeCompare(b.updatedAt || "")
                   )
                   .slice(0, 8)
                   .map((l) => (
                     <tr key={l.id}>
                       <td>
                         <div className="name">{l.nome}</div>
-                        <div className="meta mono">
-                          {l.telefone}
-                        </div>
+                        <div className="meta mono">{l.telefone}</div>
                       </td>
                       <td>{origemLabel(l.origem)}</td>
                       <td>
                         <span className="chip">
                           {
-                            STATUS_META.find(
-                              (s) => s.v === l.status,
-                            )?.label || l.status
+                            STATUS_META.find((s) => s.v === l.status)
+                              ?.label || l.status
                           }
                         </span>
                       </td>
                       <td className="mono">
-                        {formatBRL(
-                          Number(l.valorEstimado || 0),
-                        )}
+                        {formatBRL(Number(l.valorEstimado || 0))}
                       </td>
                       <td className="meta">
                         {new Date(
-                          l.updatedAt || l.createdAt,
+                          l.updatedAt || l.createdAt
                         ).toLocaleString("pt-BR")}
                       </td>
                     </tr>
@@ -698,8 +670,8 @@ export default function DashboardPage() {
                 {!metrics.filtered.length ? (
                   <tr>
                     <td colSpan={5} className="empty">
-                      Nenhum lead nesse filtro. Troque o
-                      período/origem ou use “Tudo”.
+                      Nenhum lead nesse filtro. Troque o período/origem ou
+                      use “Tudo”.
                     </td>
                   </tr>
                 ) : null}
@@ -713,8 +685,9 @@ export default function DashboardPage() {
         .page {
           padding: 24px;
         }
+
         .kicker {
-          font-size: 12px;
+          font-size: 11px;
           letter-spacing: 0.14em;
           text-transform: uppercase;
           color: rgba(200, 162, 106, 0.95);
@@ -722,13 +695,15 @@ export default function DashboardPage() {
         }
         .title {
           margin: 6px 0 0;
-          font-size: 28px;
+          font-size: 26px; /* um pouco menor que antes */
           letter-spacing: 0.01em;
         }
         .sub {
           margin: 8px 0 0;
           opacity: 0.75;
+          font-size: 13px; /* menor, padrão CRM compacto */
         }
+
         .head {
           display: flex;
           justify-content: space-between;
@@ -750,17 +725,19 @@ export default function DashboardPage() {
           flex-wrap: wrap;
           align-items: center;
         }
+
         .btn {
-          padding: 12px 14px;
+          padding: 10px 12px;
           border-radius: 14px;
           border: 1px solid rgba(200, 162, 106, 0.25);
           background: rgba(200, 162, 106, 0.08);
           cursor: pointer;
-          font-weight: 800;
+          font-weight: 900;
           color: #f2f2f2;
+          font-size: 12px;
         }
         .btnPrimarySmall {
-          padding: 12px 14px;
+          padding: 10px 12px;
           border-radius: 14px;
           border: 1px solid rgba(200, 162, 106, 0.4);
           background: linear-gradient(
@@ -771,26 +748,27 @@ export default function DashboardPage() {
           cursor: pointer;
           font-weight: 900;
           color: #f2f2f2;
+          font-size: 12px;
         }
 
         .seg {
           display: flex;
-          gap: 8px;
+          gap: 6px;
           flex-wrap: wrap;
-          padding: 8px;
+          padding: 6px;
           border-radius: 16px;
           border: 1px solid rgba(200, 162, 106, 0.18);
           background: rgba(0, 0, 0, 0.14);
         }
         .segBtn {
-          padding: 10px 12px;
+          padding: 8px 10px;
           border-radius: 14px;
           border: 1px solid rgba(255, 255, 255, 0.12);
           background: rgba(255, 255, 255, 0.04);
           color: #f2f2f2;
           cursor: pointer;
           font-weight: 900;
-          font-size: 12px;
+          font-size: 11px;
           letter-spacing: 0.04em;
         }
         .segBtn.on {
@@ -801,42 +779,44 @@ export default function DashboardPage() {
 
         .filterBox {
           display: grid;
-          gap: 6px;
-          padding: 8px 10px;
+          gap: 4px;
+          padding: 6px 8px;
           border-radius: 16px;
           border: 1px solid rgba(200, 162, 106, 0.18);
           background: rgba(0, 0, 0, 0.14);
         }
         .filterBox label {
-          font-size: 11px;
+          font-size: 10px;
           letter-spacing: 0.1em;
           text-transform: uppercase;
           opacity: 0.75;
           font-weight: 900;
         }
         .selectSmall {
-          padding: 10px 12px;
+          padding: 8px 10px;
           border-radius: 14px;
           border: 1px solid rgba(255, 255, 255, 0.12);
           background: rgba(15, 15, 22, 0.9);
           color: #f2f2f2;
           outline: none;
+          font-size: 12px;
         }
 
         .toast {
           margin-top: 12px;
-          padding: 12px 14px;
+          padding: 10px 12px;
           border-radius: 14px;
           border: 1px solid rgba(200, 162, 106, 0.22);
           background: rgba(200, 162, 106, 0.08);
           font-weight: 700;
           max-width: 820px;
+          font-size: 12px;
         }
 
         .stats {
           margin-top: 16px;
           display: grid;
-          gap: 12px;
+          gap: 10px;
           grid-template-columns: repeat(1, minmax(0, 1fr));
         }
         @media (min-width: 720px) {
@@ -850,30 +830,30 @@ export default function DashboardPage() {
           }
         }
         .stat {
-          padding: 12px 14px;
+          padding: 10px 12px;
           border-radius: 16px;
           border: 1px solid rgba(200, 162, 106, 0.16);
           background: rgba(200, 162, 106, 0.06);
         }
         .statLabel {
-          font-size: 12px;
+          font-size: 11px;
           opacity: 0.8;
         }
         .statValue {
-          margin-top: 8px;
-          font-size: 18px;
+          margin-top: 6px;
+          font-size: 15px; /* menor que antes */
           font-weight: 900;
         }
         .statHint {
-          margin-top: 6px;
-          font-size: 12px;
+          margin-top: 4px;
+          font-size: 11px;
           opacity: 0.75;
         }
 
         .grid {
           margin-top: 14px;
           display: grid;
-          gap: 14px;
+          gap: 12px;
           grid-template-columns: 1fr;
         }
         @media (min-width: 1100px) {
@@ -891,35 +871,35 @@ export default function DashboardPage() {
             rgba(255, 255, 255, 0.03),
             rgba(255, 255, 255, 0.01)
           );
-          padding: 14px;
+          padding: 12px;
         }
         .wide {
           grid-column: 1 / -1;
         }
         .cardTitle {
-          font-size: 12px;
+          font-size: 11px;
           letter-spacing: 0.12em;
           text-transform: uppercase;
           opacity: 0.85;
-          margin-bottom: 12px;
+          margin-bottom: 10px;
           font-weight: 800;
         }
         .hint {
-          margin-top: 12px;
-          font-size: 12px;
+          margin-top: 8px;
+          font-size: 11px;
           opacity: 0.75;
         }
 
         .hotTopActions {
-          margin-top: 10px;
+          margin-top: 8px;
           display: flex;
           justify-content: flex-end;
         }
 
         .hotGrid {
-          margin-top: 12px;
+          margin-top: 10px;
           display: grid;
-          gap: 12px;
+          gap: 10px;
           grid-template-columns: repeat(1, minmax(0, 1fr));
         }
         @media (min-width: 900px) {
@@ -936,71 +916,72 @@ export default function DashboardPage() {
           border-radius: 18px;
           border: 1px solid rgba(200, 162, 106, 0.18);
           background: rgba(0, 0, 0, 0.16);
-          padding: 12px;
+          padding: 10px;
         }
         .hotTop {
           display: flex;
           justify-content: space-between;
-          gap: 12px;
+          gap: 10px;
           align-items: flex-start;
         }
         .hotName {
           font-weight: 900;
-          font-size: 16px;
+          font-size: 14px;
         }
         .hotMeta {
-          margin-top: 6px;
-          font-size: 12px;
+          margin-top: 4px;
+          font-size: 11px;
           opacity: 0.8;
           display: flex;
-          gap: 8px;
+          gap: 6px;
           flex-wrap: wrap;
           align-items: center;
         }
         .hotValue {
           font-weight: 900;
+          font-size: 13px;
           color: rgba(200, 162, 106, 0.95);
           white-space: nowrap;
         }
         .hotPerf {
-          margin-top: 10px;
+          margin-top: 8px;
           display: flex;
           flex-wrap: wrap;
           gap: 6px;
           align-items: center;
         }
         .more {
-          font-size: 12px;
+          font-size: 11px;
           opacity: 0.75;
         }
         .obsMini {
-          margin-top: 10px;
-          font-size: 12px;
+          margin-top: 8px;
+          font-size: 11px;
           opacity: 0.86;
           border-left: 3px solid rgba(200, 162, 106, 0.55);
-          padding-left: 10px;
+          padding-left: 8px;
         }
         .hotActions {
-          margin-top: 12px;
+          margin-top: 10px;
           display: flex;
-          gap: 10px;
+          gap: 8px;
           flex-wrap: wrap;
           align-items: center;
         }
         .score {
-          font-size: 12px;
+          font-size: 11px;
           opacity: 0.8;
           margin-left: auto;
         }
         .hotFoot {
-          margin-top: 10px;
-          font-size: 12px;
+          margin-top: 8px;
+          font-size: 11px;
           opacity: 0.7;
         }
 
         .funnel {
           display: grid;
-          gap: 10px;
+          gap: 8px;
         }
         .fRowBtn {
           border: none;
@@ -1014,8 +995,8 @@ export default function DashboardPage() {
         }
         .fRow {
           display: grid;
-          gap: 10px;
-          grid-template-columns: 260px 1fr;
+          gap: 8px;
+          grid-template-columns: 240px 1fr;
           align-items: center;
         }
         @media (max-width: 900px) {
@@ -1026,33 +1007,34 @@ export default function DashboardPage() {
         .fLeft {
           display: flex;
           justify-content: space-between;
-          gap: 10px;
+          gap: 8px;
           align-items: center;
         }
         .fLabel {
           font-weight: 900;
           color: rgba(200, 162, 106, 0.95);
+          font-size: 13px;
         }
         .fMeta {
           display: flex;
-          gap: 10px;
+          gap: 8px;
           align-items: center;
         }
         .pill {
           display: inline-block;
-          padding: 4px 10px;
+          padding: 3px 8px;
           border-radius: 999px;
           border: 1px solid rgba(200, 162, 106, 0.22);
           background: rgba(200, 162, 106, 0.08);
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 900;
         }
         .fValue {
-          font-size: 12px;
+          font-size: 11px;
           opacity: 0.85;
         }
         .barWrap {
-          height: 12px;
+          height: 10px;
           border-radius: 999px;
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgba(0, 0, 0, 0.2);
@@ -1070,30 +1052,32 @@ export default function DashboardPage() {
 
         .origens {
           display: grid;
-          gap: 10px;
+          gap: 8px;
         }
         .origemItem {
           border-radius: 16px;
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgba(0, 0, 0, 0.14);
-          padding: 10px;
+          padding: 8px;
         }
         .origemTop {
           display: flex;
           justify-content: space-between;
-          gap: 10px;
+          gap: 8px;
           align-items: center;
         }
         .origemName {
           font-weight: 900;
+          font-size: 13px;
         }
         .origemCount {
           font-weight: 900;
           color: rgba(200, 162, 106, 0.95);
+          font-size: 13px;
         }
         .origemBarWrap {
-          margin-top: 10px;
-          height: 10px;
+          margin-top: 8px;
+          height: 8px;
           border-radius: 999px;
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgba(0, 0, 0, 0.22);
@@ -1108,14 +1092,14 @@ export default function DashboardPage() {
           );
         }
         .origemPct {
-          margin-top: 8px;
-          font-size: 12px;
+          margin-top: 6px;
+          font-size: 11px;
           opacity: 0.75;
         }
 
         .tops {
           display: grid;
-          gap: 10px;
+          gap: 8px;
           grid-template-columns: repeat(1, minmax(0, 1fr));
         }
         @media (min-width: 720px) {
@@ -1132,21 +1116,23 @@ export default function DashboardPage() {
           border-radius: 16px;
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgba(0, 0, 0, 0.14);
-          padding: 10px;
+          padding: 8px;
           display: flex;
           justify-content: space-between;
-          gap: 10px;
+          gap: 8px;
           align-items: center;
         }
         .topName {
           font-weight: 800;
+          font-size: 13px;
         }
         .topPill {
-          padding: 4px 10px;
+          padding: 3px 8px;
           border-radius: 999px;
           border: 1px solid rgba(200, 162, 106, 0.22);
           background: rgba(200, 162, 106, 0.08);
           font-weight: 900;
+          font-size: 11px;
         }
 
         .tableWrap {
@@ -1162,27 +1148,28 @@ export default function DashboardPage() {
         }
         th,
         td {
-          padding: 12px;
+          padding: 10px;
           border-bottom: 1px solid rgba(255, 255, 255, 0.06);
           vertical-align: top;
         }
         th {
-          font-size: 12px;
+          font-size: 11px;
           letter-spacing: 0.1em;
           text-transform: uppercase;
           opacity: 0.75;
         }
         .name {
           font-weight: 900;
+          font-size: 13px;
         }
         .meta {
-          margin-top: 6px;
-          font-size: 12px;
+          margin-top: 4px;
+          font-size: 11px;
           opacity: 0.7;
         }
         .chip {
           font-size: 11px;
-          padding: 4px 9px;
+          padding: 3px 8px;
           border-radius: 999px;
           border: 1px solid rgba(200, 162, 106, 0.22);
           background: rgba(200, 162, 106, 0.06);
@@ -1193,9 +1180,10 @@ export default function DashboardPage() {
             "Liberation Mono", "Courier New", monospace;
         }
         .empty {
-          padding: 16px;
+          padding: 14px;
           opacity: 0.7;
           text-align: center;
+          font-size: 11px;
         }
       `}</style>
     </main>

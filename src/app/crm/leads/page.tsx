@@ -27,7 +27,7 @@ type Lead = {
   id: string;
   nome: string;
   telefone: string;
-  origem: Origem;          // origem normalizada
+  origem: Origem; // origem normalizada
   valorEstimado: number;
   perfumes: string[];
   status: Status;
@@ -41,7 +41,7 @@ type Lead = {
   // compatibilidade com leads antigos
   name?: string;
   title?: string;
-  origin?: Origem;         // alguns registros antigos podem usar "origin"
+  origin?: Origem; // alguns registros antigos podem usar "origin"
 };
 
 const STORAGE_KEY = "maison_noor_crm_leads_v1";
@@ -167,7 +167,7 @@ function NavCRM() {
           justify-content: space-between;
           align-items: center;
           gap: 14px;
-          padding: 12px 18px;
+          padding: 10px 18px;
           max-width: 1400px;
           margin: 0 auto;
         }
@@ -177,14 +177,14 @@ function NavCRM() {
           line-height: 1.1;
         }
         .brandKicker {
-          font-size: 11px;
+          font-size: 10px;
           letter-spacing: 0.14em;
           text-transform: uppercase;
           color: rgba(200, 162, 106, 0.95);
           font-weight: 900;
         }
         .brandTitle {
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 900;
           letter-spacing: 0.08em;
           text-transform: uppercase;
@@ -192,20 +192,22 @@ function NavCRM() {
         }
         .links {
           display: flex;
-          gap: 10px;
+          gap: 8px;
           flex-wrap: wrap;
           justify-content: flex-end;
         }
         .link {
           text-decoration: none;
-          padding: 10px 12px;
+          padding: 8px 11px;
           border-radius: 14px;
           border: 1px solid rgba(200, 162, 106, 0.18);
           background: rgba(200, 162, 106, 0.06);
           color: #f2f2f2;
-          font-weight: 900;
+          font-weight: 800;
+          font-size: 12px;
           letter-spacing: 0.01em;
-          transition: transform 0.08s ease, border 0.12s ease, background 0.12s ease;
+          transition: transform 0.08s ease, border 0.12s ease,
+            background 0.12s ease;
           white-space: nowrap;
         }
         .link:hover {
@@ -886,11 +888,10 @@ export default function LeadsPage() {
           ) : null}
         </div>
 
-        {/* estilos (sem mudanças) */}
         <style jsx>{`
           .page {
-            padding: 24px;
-            padding-top: 18px;
+            padding: 20px;
+            padding-top: 16px;
           }
           .pageShell {
             display: grid;
@@ -902,8 +903,8 @@ export default function LeadsPage() {
             align-items: flex-end;
             gap: 16px;
             flex-wrap: wrap;
-            padding: 20px;
-            border-radius: 22px;
+            padding: 18px;
+            border-radius: 20px;
             border: 1px solid rgba(200, 162, 106, 0.18);
             background: radial-gradient(
                 700px 260px at 10% 0%,
@@ -922,22 +923,22 @@ export default function LeadsPage() {
             min-width: 260px;
           }
           .kicker {
-            font-size: 12px;
+            font-size: 11px;
             letter-spacing: 0.14em;
             text-transform: uppercase;
             color: rgba(200, 162, 106, 0.95);
             font-weight: 900;
           }
           .pageTitle {
-            margin: 8px 0 0;
-            font-size: 34px;
-            font-weight: 950;
+            margin: 6px 0 0;
+            font-size: 26px;
+            font-weight: 900;
             letter-spacing: 0.01em;
           }
           .pageSub {
-            margin: 8px 0 0;
+            margin: 6px 0 0;
             opacity: 0.8;
-            font-size: 15px;
+            font-size: 13px;
             line-height: 1.4;
             max-width: 720px;
           }
@@ -953,33 +954,34 @@ export default function LeadsPage() {
           }
           .stats {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             flex-wrap: wrap;
           }
           .stat {
-            min-width: 160px;
-            padding: 10px 12px;
+            min-width: 150px;
+            padding: 8px 11px;
             border-radius: 14px;
             border: 1px solid rgba(200, 162, 106, 0.16);
             background: rgba(200, 162, 106, 0.06);
           }
           .statLabel {
-            font-size: 12px;
+            font-size: 11px;
             opacity: 0.8;
           }
           .statValue {
-            margin-top: 6px;
-            font-size: 16px;
+            margin-top: 4px;
+            font-size: 15px;
             font-weight: 800;
           }
           .toast {
-            margin-top: 12px;
-            padding: 12px 14px;
+            margin-top: 10px;
+            padding: 10px 12px;
             border-radius: 14px;
             border: 1px solid rgba(200, 162, 106, 0.22);
             background: rgba(200, 162, 106, 0.08);
             font-weight: 700;
             max-width: 820px;
+            font-size: 13px;
           }
           .grid {
             margin-top: 2px;
@@ -989,7 +991,7 @@ export default function LeadsPage() {
           }
           @media (min-width: 1100px) {
             .grid {
-              grid-template-columns: 420px 1fr;
+              grid-template-columns: 400px 1fr;
               align-items: start;
             }
           }
@@ -1001,19 +1003,19 @@ export default function LeadsPage() {
               rgba(255, 255, 255, 0.03),
               rgba(255, 255, 255, 0.01)
             );
-            padding: 14px;
+            padding: 12px;
           }
           .cardTitle {
-            font-size: 12px;
+            font-size: 11px;
             letter-spacing: 0.12em;
             text-transform: uppercase;
             opacity: 0.85;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
             font-weight: 800;
           }
           .row {
             display: grid;
-            gap: 12px;
+            gap: 10px;
             grid-template-columns: 1fr;
           }
           @media (min-width: 700px) {
@@ -1023,23 +1025,24 @@ export default function LeadsPage() {
           }
           .field label {
             display: block;
-            font-size: 12px;
+            font-size: 11px;
             opacity: 0.78;
-            margin-bottom: 6px;
+            margin-bottom: 5px;
           }
           input,
           select,
           textarea {
             width: 100%;
-            padding: 12px 12px;
+            padding: 10px 11px;
             border-radius: 14px;
             border: 1px solid rgba(255, 255, 255, 0.12);
             background: rgba(15, 15, 22, 0.9);
             outline: none;
             color: #f2f2f2;
+            font-size: 13px;
           }
           textarea {
-            min-height: 160px;
+            min-height: 150px;
             resize: vertical;
           }
           input::placeholder {
@@ -1052,18 +1055,18 @@ export default function LeadsPage() {
             box-shadow: 0 0 0 3px rgba(200, 162, 106, 0.12);
           }
           .hint {
-            margin-top: 8px;
-            font-size: 12px;
+            margin-top: 6px;
+            font-size: 11px;
             opacity: 0.75;
           }
           .divider {
             height: 1px;
             background: rgba(200, 162, 106, 0.16);
-            margin: 14px 0;
+            margin: 12px 0;
           }
           .perfGrid {
             display: grid;
-            gap: 10px;
+            gap: 8px;
             grid-template-columns: 1fr;
           }
           @media (min-width: 520px) {
@@ -1074,8 +1077,8 @@ export default function LeadsPage() {
           .perfPill {
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 10px 12px;
+            gap: 8px;
+            padding: 9px 10px;
             border-radius: 16px;
             border: 1px solid rgba(255, 255, 255, 0.18);
             background: rgba(255, 255, 255, 0.04);
@@ -1083,6 +1086,7 @@ export default function LeadsPage() {
             text-align: left;
             color: #f2f2f2;
             font-weight: 600;
+            font-size: 13px;
             transition: transform 0.08s ease, border 0.12s ease,
               background 0.12s ease;
           }
@@ -1097,8 +1101,8 @@ export default function LeadsPage() {
             font-weight: 700;
           }
           .dot {
-            width: 10px;
-            height: 10px;
+            width: 9px;
+            height: 9px;
             border-radius: 999px;
             border: 1px solid rgba(200, 162, 106, 0.9);
             background: rgba(200, 162, 106, 0.35);
@@ -1106,9 +1110,9 @@ export default function LeadsPage() {
           }
           .manualRow {
             display: grid;
-            gap: 10px;
+            gap: 8px;
             grid-template-columns: 1fr;
-            margin-top: 10px;
+            margin-top: 8px;
           }
           @media (min-width: 520px) {
             .manualRow {
@@ -1117,18 +1121,19 @@ export default function LeadsPage() {
             }
           }
           .btn {
-            padding: 12px 14px;
+            padding: 10px 12px;
             border-radius: 14px;
             border: 1px solid rgba(200, 162, 106, 0.25);
             background: rgba(200, 162, 106, 0.08);
             cursor: pointer;
             font-weight: 800;
             color: #f2f2f2;
+            font-size: 13px;
           }
           .btnPrimary {
-            margin-top: 10px;
+            margin-top: 8px;
             width: 100%;
-            padding: 12px 14px;
+            padding: 11px 13px;
             border-radius: 14px;
             border: 1px solid rgba(200, 162, 106, 0.4);
             background: linear-gradient(
@@ -1140,15 +1145,17 @@ export default function LeadsPage() {
             font-weight: 900;
             letter-spacing: 0.02em;
             color: #f2f2f2;
+            font-size: 13px;
           }
           .btnDanger {
-            padding: 10px 12px;
+            padding: 9px 11px;
             border-radius: 14px;
             border: 1px solid rgba(122, 42, 69, 0.6);
             background: rgba(122, 42, 69, 0.14);
             cursor: pointer;
             font-weight: 800;
             color: #f2f2f2;
+            font-size: 13px;
           }
           .tableWrap {
             overflow-x: auto;
@@ -1163,12 +1170,13 @@ export default function LeadsPage() {
           }
           th,
           td {
-            padding: 12px;
+            padding: 10px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.06);
             vertical-align: top;
+            font-size: 13px;
           }
           th {
-            font-size: 12px;
+            font-size: 11px;
             letter-spacing: 0.1em;
             text-transform: uppercase;
             opacity: 0.75;
@@ -1177,8 +1185,8 @@ export default function LeadsPage() {
             font-weight: 900;
           }
           .meta {
-            margin-top: 6px;
-            font-size: 12px;
+            margin-top: 4px;
+            font-size: 11px;
             opacity: 0.7;
           }
           .mono {
@@ -1204,25 +1212,27 @@ export default function LeadsPage() {
             align-self: center;
           }
           .selectSmall {
-            padding: 10px 12px;
+            padding: 9px 11px;
             border-radius: 14px;
+            font-size: 13px;
           }
           .empty {
-            padding: 16px;
+            padding: 14px;
             opacity: 0.7;
             text-align: center;
+            font-size: 13px;
           }
           .actionsRow {
             display: flex;
-            gap: 8px;
+            gap: 6px;
             flex-wrap: wrap;
           }
           .obsMini {
-            margin-top: 8px;
-            font-size: 12px;
+            margin-top: 6px;
+            font-size: 11px;
             opacity: 0.78;
             border-left: 3px solid rgba(200, 162, 106, 0.55);
-            padding-left: 10px;
+            padding-left: 8px;
           }
           .modalBackdrop {
             position: fixed;
@@ -1249,21 +1259,21 @@ export default function LeadsPage() {
             padding: 6px 6px 12px;
           }
           .modalKicker {
-            font-size: 12px;
+            font-size: 11px;
             letter-spacing: 0.12em;
             text-transform: uppercase;
             color: rgba(200, 162, 106, 0.95);
             font-weight: 900;
           }
           .modalTitle {
-            margin-top: 6px;
-            font-size: 18px;
+            margin-top: 4px;
+            font-size: 17px;
             font-weight: 900;
             color: #f2f2f2;
           }
           .modalSub {
-            margin-top: 6px;
-            font-size: 12px;
+            margin-top: 4px;
+            font-size: 11px;
             opacity: 0.78;
             color: #f2f2f2;
           }
@@ -1273,12 +1283,12 @@ export default function LeadsPage() {
             background: rgba(255, 255, 255, 0.06);
             color: #f2f2f2;
             cursor: pointer;
-            padding: 8px 10px;
+            padding: 6px 9px;
             font-weight: 900;
           }
           .modalGrid {
             display: grid;
-            gap: 12px;
+            gap: 10px;
             grid-template-columns: 1fr;
           }
           @media (min-width: 980px) {
@@ -1290,21 +1300,21 @@ export default function LeadsPage() {
             border-radius: 18px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             background: rgba(255, 255, 255, 0.03);
-            padding: 12px;
+            padding: 10px;
           }
           .boxTitle {
-            font-size: 12px;
+            font-size: 11px;
             letter-spacing: 0.1em;
             text-transform: uppercase;
             opacity: 0.85;
             font-weight: 900;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             color: #f2f2f2;
           }
           .histForm {
             display: grid;
-            gap: 10px;
-            grid-template-columns: 140px 1fr auto;
+            gap: 8px;
+            grid-template-columns: 130px 1fr auto;
             align-items: center;
           }
           @media (max-width: 860px) {
@@ -1313,9 +1323,9 @@ export default function LeadsPage() {
             }
           }
           .histList {
-            margin-top: 10px;
+            margin-top: 8px;
             display: grid;
-            gap: 10px;
+            gap: 8px;
             max-height: 360px;
             overflow: auto;
             padding-right: 4px;
@@ -1324,17 +1334,17 @@ export default function LeadsPage() {
             border-radius: 16px;
             border: 1px solid rgba(200, 162, 106, 0.16);
             background: rgba(200, 162, 106, 0.06);
-            padding: 10px;
+            padding: 8px;
           }
           .histTop {
             display: flex;
             justify-content: space-between;
-            gap: 10px;
+            gap: 8px;
             align-items: center;
           }
           .histTag {
-            font-size: 11px;
-            padding: 4px 8px;
+            font-size: 10px;
+            padding: 3px 7px;
             border-radius: 999px;
             border: 1px solid rgba(200, 162, 106, 0.22);
             background: rgba(0, 0, 0, 0.22);
@@ -1342,30 +1352,31 @@ export default function LeadsPage() {
             font-weight: 900;
           }
           .histDate {
-            font-size: 11px;
+            font-size: 10px;
             opacity: 0.78;
             color: #f2f2f2;
           }
           .histText {
-            margin-top: 8px;
+            margin-top: 6px;
             font-size: 12px;
             opacity: 0.92;
             color: #f2f2f2;
             white-space: pre-wrap;
           }
           .emptyBox {
-            padding: 12px;
+            padding: 10px;
             opacity: 0.75;
             color: #f2f2f2;
             border: 1px dashed rgba(200, 162, 106, 0.22);
             border-radius: 16px;
+            font-size: 12px;
           }
           @media (max-width: 900px) {
             .pageTitle {
-              font-size: 26px;
+              font-size: 22px;
             }
             .pageHeader {
-              padding: 16px;
+              padding: 14px;
             }
           }
         `}</style>

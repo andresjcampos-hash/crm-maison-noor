@@ -68,7 +68,8 @@ function nowISO(): string {
 
 function readStorage(): Lead[] {
   try {
-    const raw = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
+    const raw =
+      typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as Lead[]) : [];
@@ -147,7 +148,11 @@ function KanbanView() {
   const [perfInput, setPerfInput] = useState("");
 
   // ===== helpers URL (filtros)
-  function setQuery(next: { range?: string; origem?: string; status?: string }): void {
+  function setQuery(next: {
+    range?: string;
+    origem?: string;
+    status?: string;
+  }): void {
     const params = new URLSearchParams(sp.toString());
     if (next.range) params.set("range", next.range);
     if (next.origem) params.set("origem", next.origem);
@@ -281,7 +286,12 @@ function KanbanView() {
           updatedAt: nowISO(),
           historico: [
             ...(l.historico || []),
-            { at: nowISO(), type: "status_change", from: oldStatus, to: nextStatus },
+            {
+              at: nowISO(),
+              type: "status_change",
+              from: oldStatus,
+              to: nextStatus,
+            },
           ],
         };
         return updated;
@@ -511,7 +521,9 @@ function KanbanView() {
             <label>Origem</label>
             <select
               value={origemFiltro}
-              onChange={(e) => setOrigemAndUrl(e.target.value as Origem | "todas")}
+              onChange={(e) =>
+                setOrigemAndUrl(e.target.value as Origem | "todas")
+              }
               className="selectSmall"
             >
               <option value="todas">Todas</option>
@@ -527,7 +539,9 @@ function KanbanView() {
             <label>Status</label>
             <select
               value={statusFiltro}
-              onChange={(e) => setStatusAndUrl(e.target.value as Status | "todos")}
+              onChange={(e) =>
+                setStatusAndUrl(e.target.value as Status | "todos")
+              }
               className="selectSmall"
             >
               <option value="todos">Todos</option>
@@ -665,10 +679,7 @@ function KanbanView() {
           onMouseDown={closeModal}
           role="presentation"
         >
-          <div
-            className="modal"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="modalHead">
               <div>
                 <div className="modalKicker">Editar lead</div>
@@ -831,11 +842,7 @@ function KanbanView() {
 
               <div className="spacer" />
 
-              <button
-                className="btnDanger"
-                onClick={deleteLead}
-                type="button"
-              >
+              <button className="btnDanger" onClick={deleteLead} type="button">
                 Excluir
               </button>
             </div>
@@ -855,21 +862,26 @@ function KanbanView() {
           padding: 24px;
         }
 
+        /* === CABEÇALHO ALINHADO COM FINANCEIRO === */
         .kicker {
-          font-size: 12px;
-          letter-spacing: 0.14em;
+          font-size: 11px;
+          letter-spacing: 0.16em;
           text-transform: uppercase;
           color: rgba(200, 162, 106, 0.95);
-          font-weight: 800;
+          font-weight: 900;
         }
         .title {
-          margin: 6px 0 0;
-          font-size: 28px;
+          margin: 8px 0 0;
+          font-size: 24px;
+          font-weight: 900;
           letter-spacing: 0.01em;
         }
         .sub {
           margin: 8px 0 0;
-          opacity: 0.75;
+          opacity: 0.8;
+          font-size: 14px;
+          line-height: 1.4;
+          max-width: 720px;
         }
 
         .head {

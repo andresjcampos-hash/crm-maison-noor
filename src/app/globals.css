@@ -282,3 +282,30 @@ label{font-size:12px;color:var(--muted)}
     font-size: 14px;
   }
 }
+
+/* =========================
+   SCROLLBAR GLOBAL (página inteira)
+   – vertical e horizontal (rodapé)
+========================= */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(208,168,92,.5) transparent; /* Firefox */
+}
+
+html::-webkit-scrollbar {
+  height: 8px; /* barra horizontal (rodapé) */
+  width: 10px; /* barra vertical */
+}
+
+html::-webkit-scrollbar-track {
+  background: rgba(255,255,255,.04);
+}
+
+html::-webkit-scrollbar-thumb {
+  background: rgba(208,168,92,.55);
+  border-radius: 999px;
+}
+
+html::-webkit-scrollbar-thumb:hover {
+  background: rgba(208,168,92,.8);
+}

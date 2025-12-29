@@ -348,7 +348,8 @@ export default function ProdutosPage() {
           if (!existing) {
             map.set(p.id, { ...p, nome: dedupeName(p.nome) });
           } else {
-            const keepIncoming = (p.updatedAt || "") > (existing.updatedAt || "");
+            const keepIncoming =
+              (p.updatedAt || "") > (existing.updatedAt || "");
             map.set(
               p.id,
               keepIncoming
@@ -906,22 +907,26 @@ export default function ProdutosPage() {
           padding: 24px;
         }
 
+        /* CABEÇALHO NO PADRÃO FINANCEIRO / KANBAN */
         .kicker {
-          font-size: 12px;
-          letter-spacing: 0.14em;
+          font-size: 11px;
+          letter-spacing: 0.16em;
           text-transform: uppercase;
           color: rgba(200, 162, 106, 0.95);
-          font-weight: 800;
+          font-weight: 900;
         }
         .title {
-          margin: 6px 0 0;
-          font-size: 36px;
+          margin: 4px 0 0;
+          font-size: 26px;
           letter-spacing: 0.01em;
+          font-weight: 900;
         }
         .sub {
-          margin: 10px 0 0;
-          opacity: 0.8;
-          font-size: 18px;
+          margin: 4px 0 0;
+          opacity: 0.78;
+          font-size: 14px;
+          line-height: 1.4;
+          max-width: 720px;
         }
 
         .head {

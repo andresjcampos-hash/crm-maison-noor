@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { db } from "@/services/firebase"; // 🔧 AJUSTE o caminho conforme seu projeto
+import { db } from "@/services/firebase";
 import {
   collection,
   deleteDoc,
@@ -24,7 +24,7 @@ type FormaPag =
 type Lancamento = {
   id: string;
   data: string; // ISO
-  competencia: string; // AAAA-MM para filtro por mês
+  competencia: string; // AAAA-MM
   tipo: TipoLanc;
   descricao: string;
   categoria?: string;
@@ -34,8 +34,6 @@ type Lancamento = {
   observacoes?: string;
   createdAt: string;
   updatedAt: string;
-
-  // 🔗 Integração com Pedidos (quando vem de pedido pago)
   origemPedidoId?: string;
   clienteNome?: string;
 };
@@ -80,13 +78,11 @@ function writeStorage(items: Lancamento[]): void {
 }
 
 function toCompetencia(iso: string): string {
-  // retorna AAAA-MM
   if (!iso) return "";
   return iso.slice(0, 7);
 }
 
-// 🔥 Helpers Firestore
-
+// Firestore helpers
 function tsToISO(value: any): string {
   if (!value) return nowISO();
   if (typeof value === "string") return value;
@@ -187,20 +183,18 @@ export default function FinanceiroPage() {
   const [items, setItems] = useState<Lancamento[]>([]);
   const [toast, setToast] = useState("");
 
-  // filtros
   const [q, setQ] = useState("");
   const [tipoFilter, setTipoFilter] = useState<"todos" | TipoLanc>("todos");
-  const [statusFilter, setStatusFilter] = useState<"todos" | StatusLanc>("todos");
+  const [statusFilter, setStatusFilter] =
+    useState<"todos" | StatusLanc>("todos");
   const [competenciaFilter, setCompetenciaFilter] = useState<string>("");
 
-  // modal
   const [openId, setOpenId] = useState<string | null>(null);
   const openItem = useMemo(
     () => items.find((l) => l.id === openId) || null,
     [items, openId]
   );
 
-  // form
   const [fData, setFData] = useState<string>("");
   const [fTipo, setFTipo] = useState<TipoLanc>("receita");
   const [fDescricao, setFDescricao] = useState("");
@@ -216,7 +210,6 @@ export default function FinanceiroPage() {
     async function init() {
       let data = readStorage();
 
-      // tenta buscar do Firestore e, se tiver dados, usa como verdade oficial
       const fromFs = await fetchFromFirestore();
       if (fromFs.length) {
         data = fromFs;
@@ -225,7 +218,6 @@ export default function FinanceiroPage() {
 
       setItems(data);
 
-      // se não tiver competência selecionada, usa mês atual
       const hoje = new Date();
       const pad = (n: number) => String(n).padStart(2, "0");
       const compDefault = `${hoje.getFullYear()}-${pad(hoje.getMonth() + 1)}`;
@@ -397,7 +389,8 @@ export default function FinanceiroPage() {
     setItems((prev) => {
       const next = prev.map((l) => {
         if (l.id !== id) return l;
-        const novoStatus: StatusLanc = l.status === "pago" ? "pendente" : "pago";
+        const novoStatus: StatusLanc =
+          l.status === "pago" ? "pendente" : "pago";
         const updated: Lancamento = {
           ...l,
           status: novoStatus,
@@ -433,7 +426,6 @@ export default function FinanceiroPage() {
     showToast("📌 Lançamento duplicado!");
   }
 
-  // export/import
   function exportJSON(): void {
     const data = JSON.stringify(items, null, 2);
     const blob = new Blob([data], { type: "application/json" });
@@ -506,7 +498,6 @@ export default function FinanceiroPage() {
           })
           .filter((l) => l.descricao);
 
-        // ✅ usa o que está no storage agora, não o "items" do closure
         const current = readStorage();
         const map = new Map<string, Lancamento>();
         for (const l of current) map.set(l.id, l);
@@ -516,7 +507,8 @@ export default function FinanceiroPage() {
           if (!existing) {
             map.set(l.id, l);
           } else {
-            const keepIncoming = (l.updatedAt || "") > (existing.updatedAt || "");
+            const keepIncoming =
+              (l.updatedAt || "") > (existing.updatedAt || "");
             map.set(l.id, keepIncoming ? l : existing);
           }
         }
@@ -535,7 +527,6 @@ export default function FinanceiroPage() {
     reader.readAsText(file);
   }
 
-  // ESC fecha modal | Ctrl+Enter salva
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") closeModal();
@@ -547,7 +538,6 @@ export default function FinanceiroPage() {
       return () => window.removeEventListener("keydown", onKey);
     }
     return;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openId, fData, fDescricao, fValor, fCategoria, fForma, fStatus, fTipo, fObs]);
 
   const filtered = useMemo(() => {
@@ -599,10 +589,29 @@ export default function FinanceiroPage() {
     <main className="page">
       <header className="head">
         <div>
-          <div className="kicker">Maison Noor</div>
-          <h1 className="title">CRM • Financeiro</h1>
-          <p className="sub">
-            Controle receitas, despesas e saldo geral (sincronizado com Firestore).
+          <div className="kicker">MAISON NOOR</div>
+
+          <h1
+            className="title"
+            style={{
+              fontSize: "22px",
+              lineHeight: 1.2,
+              marginTop: "6px",
+            }}
+          >
+            CRM • Financeiro
+          </h1>
+
+          <p
+            className="sub"
+            style={{
+              fontSize: "13px",
+              marginTop: "6px",
+              opacity: 0.8,
+            }}
+          >
+            Controle receitas, despesas e saldo geral (sincronizado com
+            Firestore).
           </p>
         </div>
 
@@ -638,7 +647,7 @@ export default function FinanceiroPage() {
 
       {toast ? <div className="toast">{toast}</div> : null}
 
-      {/* TOOLBAR / FILTROS */}
+      {/* TOOLBAR */}
       <section className="toolbar">
         <div className="field">
           <label>Busca</label>
@@ -655,7 +664,9 @@ export default function FinanceiroPage() {
           <select
             className="input"
             value={tipoFilter}
-            onChange={(e) => setTipoFilter(e.target.value as "todos" | TipoLanc)}
+            onChange={(e) =>
+              setTipoFilter(e.target.value as "todos" | TipoLanc)
+            }
           >
             <option value="todos">Todos</option>
             <option value="receita">Receitas</option>
@@ -711,9 +722,7 @@ export default function FinanceiroPage() {
           <div className="sumLabel">Saldo</div>
           <div
             className={
-              totals.saldo >= 0
-                ? "sumValue greenStrong"
-                : "sumValue redStrong"
+              totals.saldo >= 0 ? "sumValue greenStrong" : "sumValue redStrong"
             }
           >
             {formatBRL(totals.saldo)}
@@ -1042,13 +1051,10 @@ export default function FinanceiroPage() {
         }
         .title {
           margin: 6px 0 0;
-          font-size: 36px;
           letter-spacing: 0.01em;
         }
         .sub {
-          margin: 10px 0 0;
-          opacity: 0.8;
-          font-size: 18px;
+          margin: 8px 0 0;
         }
 
         .head {
@@ -1150,7 +1156,7 @@ export default function FinanceiroPage() {
         }
         .sumValue {
           margin-top: 8px;
-          font-size: 18px;
+          font-size: 16px;
           font-weight: 900;
         }
         .sumValue.green {
@@ -1175,7 +1181,6 @@ export default function FinanceiroPage() {
           line-height: 1.35;
         }
 
-        /* TABELA ERP */
         .erpTable {
           margin-top: 16px;
           border-radius: 18px;
@@ -1223,7 +1228,7 @@ export default function FinanceiroPage() {
         .erpRow {
           padding: 8px 16px;
           border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-          font-size: 13px;
+          font-size: 12px;
           cursor: pointer;
         }
         .erpRow:last-child {
@@ -1329,7 +1334,6 @@ export default function FinanceiroPage() {
           font-size: 12px;
         }
 
-        /* MODAL */
         .modalOverlay {
           position: fixed;
           inset: 0;
