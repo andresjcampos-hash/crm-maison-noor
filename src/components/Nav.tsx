@@ -128,7 +128,7 @@ export default function Nav() {
         })}
       </div>
 
-      {/* Botão de sair */}
+      {/* Botão de sair – versão compacta */}
       <button type="button" className="logoutButton" onClick={handleLogout}>
         Sair
       </button>
@@ -236,26 +236,31 @@ export default function Nav() {
           color: rgba(200, 162, 106, 0.98);
         }
 
+        /* 🔻 Botão sair compacto, não ocupa a largura toda */
         .logoutButton {
-          margin-top: 12px;
-          align-self: stretch;
-          padding: 8px 10px;
-          border-radius: 14px;
-          border: 1px solid rgba(200, 162, 106, 0.35);
-          background: rgba(200, 162, 106, 0.12);
+          margin-top: 14px;
+          align-self: flex-start;
+          padding: 6px 14px;
+          border-radius: 999px;
+          border: 1px solid rgba(200, 162, 106, 0.4);
+          background: rgba(0, 0, 0, 0.4);
           color: rgba(255, 220, 170, 0.98);
           font-size: 11px;
           font-weight: 700;
-          letter-spacing: 0.09em;
+          letter-spacing: 0.12em;
           text-transform: uppercase;
           cursor: pointer;
           text-align: center;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
           transition: background 0.16s ease, border-color 0.16s ease,
             transform 0.1s ease, box-shadow 0.16s ease, opacity 0.12s ease;
         }
 
         .logoutButton:hover {
-          background: rgba(200, 162, 106, 0.24);
+          background: rgba(200, 162, 106, 0.28);
           border-color: rgba(200, 162, 106, 0.8);
           box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
           transform: translateY(-1px);
@@ -270,18 +275,6 @@ export default function Nav() {
           opacity: 0.6;
           cursor: default;
           box-shadow: none;
-        }
-
-        @media (max-width: 900px) {
-          /* só escondemos o título, não mexemos na lista
-             pra manter o layout igual no mobile */
-          .sectionTitle {
-            display: none;
-          }
-
-          .logoutButton {
-            margin-top: 10px;
-          }
         }
       `}</style>
     </nav>
