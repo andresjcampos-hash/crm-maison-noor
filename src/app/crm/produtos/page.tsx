@@ -2,6 +2,20 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+// 🔌 Firebase
+import { db } from "@/lib/firebase";
+import {
+  collection,
+  addDoc,
+  doc,
+  updateDoc,
+  deleteDoc,
+  getDocs,
+  query,
+  orderBy,
+  setDoc,
+} from "firebase/firestore";
+
 type Categoria = "masculino" | "feminino" | "unissex";
 
 type Produto = {
@@ -67,6 +81,17 @@ function norm(s: string): string {
     .replace(/\s+/g, " ");
 }
 
+// 🔧 remove qualquer campo undefined antes de enviar pro Firestore
+function cleanUndefined<T extends Record<string, any>>(obj: T): T {
+  const out: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out as T;
+}
+
+const productsCollection = collection(db, "products");
+
 export default function ProdutosPage() {
   const [items, setItems] = useState<Produto[]>([]);
   const [toast, setToast] = useState("");
@@ -101,10 +126,6 @@ export default function ProdutosPage() {
   // import/export
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => {
-    setItems(readStorage());
-  }, []);
-
   function showToast(msg: string, ms = 1600): void {
     setToast(msg);
     if (typeof window !== "undefined") {
@@ -112,9 +133,53 @@ export default function ProdutosPage() {
     }
   }
 
+  // 🔁 Carrega do Firestore (com fallback pro backup local)
+  async function loadFromFirebase(showMsg = false) {
+    try {
+      const snap = await getDocs(
+        query(productsCollection, orderBy("updatedAt", "desc"))
+      );
+      const arr: Produto[] = [];
+      snap.forEach((d) => {
+        const data = d.data() as any;
+        arr.push({
+          id: d.id,
+          nome: data.nome ?? "",
+          marca: data.marca,
+          volumeMl: data.volumeMl,
+          categoria: data.categoria,
+          precoCompra: data.precoCompra,
+          precoVenda: data.precoVenda,
+          estoque: data.estoque,
+          reservado: data.reservado ?? 0,
+          ativo: data.ativo ?? true,
+          createdAt: data.createdAt ?? nowISO(),
+          updatedAt: data.updatedAt ?? nowISO(),
+          observacoes: data.observacoes,
+        });
+      });
+      setItems(arr);
+      writeStorage(arr);
+      if (showMsg) showToast("🔄 Atualizado do servidor!");
+    } catch (err) {
+      console.error("Erro Firestore:", err);
+      const backup = readStorage();
+      if (backup.length) {
+        setItems(backup);
+        showToast("⚠️ Erro no servidor. Usando backup local.");
+      } else {
+        showToast("⚠️ Erro ao carregar produtos.");
+      }
+    }
+  }
+
+  useEffect(() => {
+    loadFromFirebase(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function refresh(): void {
-    setItems(readStorage());
-    showToast("🔄 Atualizado!");
+    loadFromFirebase(true);
   }
 
   function openNew(): void {
@@ -168,7 +233,8 @@ export default function ProdutosPage() {
     return `${base} (${i})`;
   }
 
-  function save(): void {
+  // 💾 SALVAR (CREATE/UPDATE) NO FIRESTORE
+  async function save() {
     const nomeRaw = fNome.trim();
     if (!nomeRaw) {
       showToast("⚠️ Informe o nome do produto.");
@@ -184,47 +250,40 @@ export default function ProdutosPage() {
       precoVenda: Math.max(0, toNum(fVenda)),
       estoque: Math.max(0, Math.floor(toNum(fEstoque))),
       ativo: fAtivo,
+      // 🔑 nunca manda undefined
       observacoes: fObs?.trim() ? fObs.trim() : undefined,
+      reservado: openId === "NEW" ? 0 : openItem?.reservado ?? 0,
+      createdAt: openId === "NEW" ? nowISO() : openItem?.createdAt ?? nowISO(),
+      updatedAt: nowISO(),
     };
 
-    setItems((prev) => {
-      let next: Produto[] = [];
-
+    try {
       if (openId === "NEW") {
-        const created: Produto = {
-          id: uid(),
+        const payload = cleanUndefined({
           ...basePayload,
-          reservado: 0,
           nome: dedupeName(basePayload.nome),
-          createdAt: nowISO(),
-          updatedAt: nowISO(),
-        };
-        next = [created, ...prev];
-        showToast("✅ Produto criado!");
-      } else if (openId) {
-        next = prev.map((p) => {
-          if (p.id !== openId) return p;
-          return {
-            ...p,
-            ...basePayload,
-            reservado: p.reservado ?? 0,
-            nome: dedupeName(basePayload.nome, p.id),
-            updatedAt: nowISO(),
-          };
         });
-        showToast("✅ Produto atualizado!");
-      } else {
-        return prev;
+        await addDoc(productsCollection, payload);
+        showToast("✅ Produto criado no Firebase!");
+      } else if (openId) {
+        const payload = cleanUndefined({
+          ...basePayload,
+          nome: dedupeName(basePayload.nome, openId),
+        });
+        await updateDoc(doc(db, "products", openId), payload);
+        showToast("✅ Produto atualizado no Firebase!");
       }
 
-      writeStorage(next);
-      return next;
-    });
-
-    closeModal();
+      closeModal();
+      await loadFromFirebase(false);
+    } catch (err) {
+      console.error(err);
+      showToast("❌ Erro ao salvar no servidor");
+    }
   }
 
-  function remove(): void {
+  // 🗑️ REMOVER
+  async function remove() {
     if (!openItem) return;
     const ok =
       typeof window === "undefined"
@@ -232,60 +291,79 @@ export default function ProdutosPage() {
         : window.confirm(`Excluir "${openItem.nome}"? (não dá para desfazer)`);
     if (!ok) return;
 
-    setItems((prev) => {
-      const next = prev.filter((p) => p.id !== openItem.id);
-      writeStorage(next);
-      return next;
-    });
-
-    showToast("🗑️ Produto excluído!");
-    closeModal();
+    try {
+      await deleteDoc(doc(db, "products", openItem.id));
+      showToast("🗑️ Produto excluído!");
+      closeModal();
+      await loadFromFirebase(false);
+    } catch (err) {
+      console.error(err);
+      showToast("⚠️ Erro ao excluir");
+    }
   }
 
-  function duplicateProduct(id: string): void {
+  // 📌 DUPLICAR
+  async function duplicateProduct(id: string): Promise<void> {
     const p = items.find((x) => x.id === id);
     if (!p) return;
 
-    const copy: Produto = {
+    const copyPayload = {
       ...p,
-      id: uid(),
       nome: dedupeName(p.nome),
       reservado: p.reservado ?? 0,
       createdAt: nowISO(),
       updatedAt: nowISO(),
     };
+    // não salvar o id dentro do doc
+    const { id: _, ...data } = copyPayload;
 
-    const next = [copy, ...items];
-    setItems(next);
-    writeStorage(next);
-    showToast("📌 Produto duplicado!");
+    try {
+      await addDoc(productsCollection, cleanUndefined(data));
+      showToast("📌 Produto duplicado!");
+      await loadFromFirebase(false);
+    } catch (err) {
+      console.error(err);
+      showToast("⚠️ Erro ao duplicar");
+    }
   }
 
-  function adjustEstoque(id: string, delta: number): void {
-    setItems((prev) => {
-      const next = prev.map((p) => {
-        if (p.id !== id) return p;
-        const atual = Number(p.estoque) || 0;
-        const novo = Math.max(0, atual + delta);
-        return { ...p, estoque: novo, updatedAt: nowISO() };
+  // 🔻 / 🔺 AJUSTE DE ESTOQUE
+  async function adjustEstoque(id: string, delta: number): Promise<void> {
+    const p = items.find((x) => x.id === id);
+    if (!p) return;
+    const atual = Number(p.estoque) || 0;
+    const novo = Math.max(0, atual + delta);
+
+    try {
+      await updateDoc(doc(db, "products", id), {
+        estoque: novo,
+        updatedAt: nowISO(),
       });
-      writeStorage(next);
-      return next;
-    });
+      await loadFromFirebase(false);
+    } catch (err) {
+      console.error(err);
+      showToast("⚠️ Erro ao ajustar estoque");
+    }
   }
 
-  function toggleActive(id: string): void {
-    setItems((prev) => {
-      const next = prev.map((p) => {
-        if (p.id !== id) return p;
-        return { ...p, ativo: !(p.ativo ?? true), updatedAt: nowISO() };
+  // ON/OFF
+  async function toggleActive(id: string): Promise<void> {
+    const p = items.find((x) => x.id === id);
+    if (!p) return;
+
+    try {
+      await updateDoc(doc(db, "products", id), {
+        ativo: !(p.ativo ?? true),
+        updatedAt: nowISO(),
       });
-      writeStorage(next);
-      return next;
-    });
+      await loadFromFirebase(false);
+    } catch (err) {
+      console.error(err);
+      showToast("⚠️ Erro ao alterar status");
+    }
   }
 
-  // export json
+  // export json (usa o estado atual)
   function exportJSON(): void {
     const data = JSON.stringify(items, null, 2);
     const blob = new Blob([data], { type: "application/json" });
@@ -302,10 +380,10 @@ export default function ProdutosPage() {
     showToast("⬇️ Exportado!");
   }
 
-  // import json
+  // import json -> grava no Firestore
   function importJSON(file: File): void {
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const raw = String(reader.result || "");
         const parsed = JSON.parse(raw);
@@ -338,32 +416,18 @@ export default function ProdutosPage() {
           }))
           .filter((p) => p.nome);
 
-        // usa o storage atual, não só o "items" do closure
-        const current = readStorage();
-        const map = new Map<string, Produto>();
-        for (const p of current) map.set(p.id, p);
-
+        // salva/atualiza cada produto no Firestore
         for (const p of incoming) {
-          const existing = map.get(p.id);
-          if (!existing) {
-            map.set(p.id, { ...p, nome: dedupeName(p.nome) });
-          } else {
-            const keepIncoming =
-              (p.updatedAt || "") > (existing.updatedAt || "");
-            map.set(
-              p.id,
-              keepIncoming
-                ? { ...p, nome: dedupeName(p.nome, p.id) }
-                : existing
-            );
-          }
+          const { id, ...data } = p;
+          await setDoc(doc(db, "products", id), cleanUndefined(data), {
+            merge: true,
+          });
         }
 
-        const next = Array.from(map.values());
-        setItems(next);
-        writeStorage(next);
+        await loadFromFirebase(false);
         showToast("✅ Importado com sucesso!");
-      } catch {
+      } catch (err) {
+        console.error(err);
         showToast("⚠️ Não consegui importar. Verifique o arquivo JSON.");
       } finally {
         if (fileRef.current) fileRef.current.value = "";
@@ -477,7 +541,7 @@ export default function ProdutosPage() {
           <div className="kicker">Maison Noor</div>
           <h1 className="title">CRM • Produtos</h1>
           <p className="sub">
-            Cadastre e controle catálogo + estoque (localStorage).
+            Cadastre e controle catálogo + estoque (sincronizado online).
           </p>
         </div>
 
