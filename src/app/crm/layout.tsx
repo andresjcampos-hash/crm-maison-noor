@@ -2,6 +2,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Image from "next/image";
 import Nav from "@/components/Nav";
 import { AuthGuard } from "@/components/AuthGuard";
 
@@ -13,8 +14,22 @@ export default function CrmLayout({ children }: { children: ReactNode }) {
           <div className="crmNavInner">
             <div className="brand">
               <div className="brandTop">
-                <div className="kicker">Maison Noor</div>
-                <div className="title">CRM</div>
+                {/* Logo Maison Noor */}
+                <div className="brandLogoWrap">
+                  <Image
+                    src="/logo-maison-noor.png"
+                    alt="Maison Noor Parfums"
+                    width={40}
+                    height={40}
+                    className="brandLogo"
+                  />
+                </div>
+
+                {/* Nome + CRM */}
+                <div className="brandText">
+                  <div className="kicker">Maison Noor</div>
+                  <div className="title">CRM</div>
+                </div>
               </div>
 
               <div className="brandLine" aria-hidden />
@@ -31,7 +46,8 @@ export default function CrmLayout({ children }: { children: ReactNode }) {
               <div className="navFooterLine" aria-hidden />
               <div className="navFooterText">
                 <span className="dot" aria-hidden />
-                <span className="muted">Sistema local</span>
+                {/* texto mais coerente pro seu uso com a Val */}
+                <span className="muted">Uso interno • André &amp; Val</span>
               </div>
             </div>
           </div>
@@ -139,8 +155,30 @@ export default function CrmLayout({ children }: { children: ReactNode }) {
           }
 
           .brandTop {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+          }
+
+          .brandLogoWrap {
+            width: 40px;
+            height: 40px;
+            border-radius: 999px;
+            overflow: hidden;
+            border: 1px solid rgba(200, 162, 106, 0.5);
+            background: #050506;
+            flex-shrink: 0;
+          }
+
+          .brandLogo {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+          }
+
+          .brandText {
             display: grid;
-            gap: 6px;
+            gap: 4px;
           }
 
           .kicker {
