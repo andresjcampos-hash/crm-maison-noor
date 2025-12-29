@@ -78,10 +78,7 @@ const links: NavLink[] = [
   { href: "/crm/leads", label: "Leads", icon: <IconLeads /> },
   { href: "/crm/kanban", label: "Kanban", icon: <IconKanban /> },
   { href: "/crm/pedidos", label: "Pedidos", icon: <IconPedidos /> },
-
-  // 👉 Financeiro
   { href: "/crm/financeiro", label: "Financeiro", icon: <IconFinanceiro /> },
-
   { href: "/crm/produtos", label: "Produtos", icon: <IconProdutos /> },
 ];
 
@@ -132,11 +129,7 @@ export default function Nav() {
       </div>
 
       {/* Botão de sair */}
-      <button
-        type="button"
-        className="logoutButton"
-        onClick={handleLogout}
-      >
+      <button type="button" className="logoutButton" onClick={handleLogout}>
         Sair
       </button>
 
@@ -172,7 +165,8 @@ export default function Nav() {
           color: #f2f2f2;
           border: 1px solid rgba(255, 255, 255, 0.1);
           background: rgba(0, 0, 0, 0.14);
-          transition: transform 0.08s ease, border 0.12s ease, background 0.12s ease;
+          transition: transform 0.08s ease, border 0.12s ease,
+            background 0.12s ease;
         }
 
         .item:hover {
@@ -181,7 +175,6 @@ export default function Nav() {
           background: rgba(200, 162, 106, 0.08);
         }
 
-        /* foco teclado (acessibilidade) */
         .item:focus-visible {
           outline: none;
           box-shadow: 0 0 0 4px rgba(200, 162, 106, 0.18);
@@ -222,7 +215,6 @@ export default function Nav() {
           transform: translateY(-1px);
         }
 
-        /* ATIVO mais evidente */
         .active {
           border-color: rgba(200, 162, 106, 0.55);
           background: rgba(200, 162, 106, 0.12);
@@ -245,31 +237,27 @@ export default function Nav() {
         }
 
         .logoutButton {
-          margin-top: 14px;
-          width: 100%;
-          padding: 9px 12px;
-          border-radius: 999px;
-          border: 1px solid rgba(200, 162, 106, 0.4);
-          background: rgba(200, 162, 106, 0.14);
+          margin-top: 12px;
+          align-self: stretch;
+          padding: 8px 10px;
+          border-radius: 14px;
+          border: 1px solid rgba(200, 162, 106, 0.35);
+          background: rgba(200, 162, 106, 0.12);
           color: rgba(255, 220, 170, 0.98);
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 700;
-          letter-spacing: 0.12em;
+          letter-spacing: 0.09em;
           text-transform: uppercase;
           cursor: pointer;
           text-align: center;
-          transition:
-            background 0.16s ease,
-            border-color 0.16s ease,
-            transform 0.1s ease,
-            box-shadow 0.16s ease,
-            opacity 0.12s ease;
+          transition: background 0.16s ease, border-color 0.16s ease,
+            transform 0.1s ease, box-shadow 0.16s ease, opacity 0.12s ease;
         }
 
         .logoutButton:hover {
-          background: rgba(200, 162, 106, 0.28);
+          background: rgba(200, 162, 106, 0.24);
           border-color: rgba(200, 162, 106, 0.8);
-          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
           transform: translateY(-1px);
         }
 
@@ -284,32 +272,13 @@ export default function Nav() {
           box-shadow: none;
         }
 
-        /* Mobile: compacto */
         @media (max-width: 900px) {
+          /* só escondemos o título, não mexemos na lista
+             pra manter o layout igual no mobile */
           .sectionTitle {
             display: none;
           }
-          .list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-          }
-          .item {
-            padding: 10px 12px;
-            border-radius: 999px;
-          }
-          .rail,
-          .chev {
-            display: none;
-          }
-          .icon {
-            width: 28px;
-            height: 28px;
-            border-radius: 999px;
-          }
-          .label {
-            font-size: 14px;
-          }
+
           .logoutButton {
             margin-top: 10px;
           }
