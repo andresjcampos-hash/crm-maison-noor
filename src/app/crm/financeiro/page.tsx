@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { db } from "@/services/firebase"; // 🔧 AJUSTE o caminho conforme seu projeto
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  setDoc,
+} from "firebase/firestore";
 
 type TipoLanc = "receita" | "despesa";
 type StatusLanc = "pago" | "pendente";
@@ -33,6 +41,7 @@ type Lancamento = {
 };
 
 const STORAGE_KEY = "maison_noor_crm_financeiro_v1";
+const FIRESTORE_COLLECTION = "financeiro";
 
 function nowISO(): string {
   return new Date().toISOString();
@@ -76,6 +85,104 @@ function toCompetencia(iso: string): string {
   return iso.slice(0, 7);
 }
 
+// 🔥 Helpers Firestore
+
+function tsToISO(value: any): string {
+  if (!value) return nowISO();
+  if (typeof value === "string") return value;
+  if (value && typeof value.toDate === "function") {
+    try {
+      return value.toDate().toISOString();
+    } catch {
+      return nowISO();
+    }
+  }
+  return nowISO();
+}
+
+async function fetchFromFirestore(): Promise<Lancamento[]> {
+  try {
+    const snap = await getDocs(collection(db, FIRESTORE_COLLECTION));
+    const list: Lancamento[] = snap.docs
+      .map((docSnap) => {
+        const d = docSnap.data() as any;
+
+        const dataIso = tsToISO(d.data);
+        const competencia = d.competencia || toCompetencia(dataIso);
+
+        const tipo: TipoLanc = d.tipo === "despesa" ? "despesa" : "receita";
+        const status: StatusLanc =
+          d.status === "pendente" ? "pendente" : "pago";
+
+        const formaRaw = d.forma;
+        const forma: FormaPag =
+          formaRaw === "dinheiro" ||
+          formaRaw === "pix" ||
+          formaRaw === "credito" ||
+          formaRaw === "debito" ||
+          formaRaw === "boleto" ||
+          formaRaw === "transferencia"
+            ? formaRaw
+            : "outros";
+
+        const origemPedidoId = d.origemPedidoId
+          ? String(d.origemPedidoId)
+          : undefined;
+        const clienteNome = d.clienteNome ? String(d.clienteNome) : undefined;
+
+        const lanc: Lancamento = {
+          id: docSnap.id,
+          data: dataIso,
+          competencia,
+          tipo,
+          descricao: String(d.descricao || "").trim(),
+          categoria: d.categoria ? String(d.categoria) : undefined,
+          forma,
+          valor: Number(d.valor) || 0,
+          status,
+          observacoes: d.observacoes ? String(d.observacoes) : undefined,
+          origemPedidoId,
+          clienteNome,
+          createdAt: tsToISO(d.createdAt),
+          updatedAt: tsToISO(d.updatedAt),
+        };
+        return lanc;
+      })
+      .filter((l) => l.descricao);
+
+    return list;
+  } catch (e) {
+    console.error("[Financeiro] Erro ao carregar do Firestore:", e);
+    return [];
+  }
+}
+
+async function upsertInFirestore(l: Lancamento): Promise<void> {
+  try {
+    const ref = doc(collection(db, FIRESTORE_COLLECTION), l.id);
+    await setDoc(ref, l, { merge: true });
+  } catch (e) {
+    console.error("[Financeiro] Erro ao salvar no Firestore:", e);
+  }
+}
+
+async function deleteFromFirestore(id: string): Promise<void> {
+  try {
+    const ref = doc(collection(db, FIRESTORE_COLLECTION), id);
+    await deleteDoc(ref);
+  } catch (e) {
+    console.error("[Financeiro] Erro ao excluir no Firestore:", e);
+  }
+}
+
+async function syncListToFirestore(list: Lancamento[]): Promise<void> {
+  try {
+    await Promise.all(list.map((l) => upsertInFirestore(l)));
+  } catch (e) {
+    console.error("[Financeiro] Erro ao sincronizar lista no Firestore:", e);
+  }
+}
+
 export default function FinanceiroPage() {
   const [items, setItems] = useState<Lancamento[]>([]);
   const [toast, setToast] = useState("");
@@ -106,14 +213,26 @@ export default function FinanceiroPage() {
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    const data = readStorage();
-    setItems(data);
+    async function init() {
+      let data = readStorage();
 
-    // se não tiver competência selecionada, usa mês atual
-    const hoje = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const compDefault = `${hoje.getFullYear()}-${pad(hoje.getMonth() + 1)}`;
-    setCompetenciaFilter((prev) => prev || compDefault);
+      // tenta buscar do Firestore e, se tiver dados, usa como verdade oficial
+      const fromFs = await fetchFromFirestore();
+      if (fromFs.length) {
+        data = fromFs;
+        writeStorage(data);
+      }
+
+      setItems(data);
+
+      // se não tiver competência selecionada, usa mês atual
+      const hoje = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const compDefault = `${hoje.getFullYear()}-${pad(hoje.getMonth() + 1)}`;
+      setCompetenciaFilter((prev) => prev || compDefault);
+    }
+
+    void init();
   }, []);
 
   function showToast(msg: string, ms = 1600): void {
@@ -123,8 +242,17 @@ export default function FinanceiroPage() {
     }
   }
 
-  function refresh(): void {
-    setItems(readStorage());
+  async function refresh(): Promise<void> {
+    showToast("⏳ Atualizando...");
+    let data = readStorage();
+
+    const fromFs = await fetchFromFirestore();
+    if (fromFs.length) {
+      data = fromFs;
+      writeStorage(data);
+    }
+
+    setItems(data);
     showToast("🔄 Atualizado!");
   }
 
@@ -199,6 +327,8 @@ export default function FinanceiroPage() {
       observacoes: fObs?.trim() ? fObs.trim() : undefined,
     };
 
+    let lancParaSync: Lancamento | null = null;
+
     setItems((prev) => {
       let next: Lancamento[] = [];
 
@@ -209,16 +339,19 @@ export default function FinanceiroPage() {
           createdAt: nowISO(),
           updatedAt: nowISO(),
         };
+        lancParaSync = created;
         next = [created, ...prev];
         showToast("✅ Lançamento criado!");
       } else if (openId) {
         next = prev.map((l) => {
           if (l.id !== openId) return l;
-          return {
+          const updated: Lancamento = {
             ...l,
             ...payloadBase,
             updatedAt: nowISO(),
           };
+          lancParaSync = updated;
+          return updated;
         });
         showToast("✅ Lançamento atualizado!");
       } else {
@@ -228,6 +361,10 @@ export default function FinanceiroPage() {
       writeStorage(next);
       return next;
     });
+
+    if (lancParaSync) {
+      void upsertInFirestore(lancParaSync);
+    }
 
     closeModal();
   }
@@ -248,20 +385,34 @@ export default function FinanceiroPage() {
       return next;
     });
 
+    void deleteFromFirestore(openItem.id);
+
     showToast("🗑️ Lançamento excluído!");
     closeModal();
   }
 
   function toggleStatus(id: string): void {
+    let lancParaSync: Lancamento | null = null;
+
     setItems((prev) => {
       const next = prev.map((l) => {
         if (l.id !== id) return l;
         const novoStatus: StatusLanc = l.status === "pago" ? "pendente" : "pago";
-        return { ...l, status: novoStatus, updatedAt: nowISO() };
+        const updated: Lancamento = {
+          ...l,
+          status: novoStatus,
+          updatedAt: nowISO(),
+        };
+        lancParaSync = updated;
+        return updated;
       });
       writeStorage(next);
       return next;
     });
+
+    if (lancParaSync) {
+      void upsertInFirestore(lancParaSync);
+    }
   }
 
   function duplicateLanc(id: string): void {
@@ -278,6 +429,7 @@ export default function FinanceiroPage() {
     const next = [copy, ...items];
     setItems(next);
     writeStorage(next);
+    void upsertInFirestore(copy);
     showToast("📌 Lançamento duplicado!");
   }
 
@@ -372,6 +524,7 @@ export default function FinanceiroPage() {
         const next = Array.from(map.values());
         setItems(next);
         writeStorage(next);
+        void syncListToFirestore(next);
         showToast("✅ Importado com sucesso!");
       } catch {
         showToast("⚠️ Não consegui importar. Verifique o arquivo JSON.");
@@ -449,7 +602,7 @@ export default function FinanceiroPage() {
           <div className="kicker">Maison Noor</div>
           <h1 className="title">CRM • Financeiro</h1>
           <p className="sub">
-            Controle receitas, despesas e saldo geral (localStorage).
+            Controle receitas, despesas e saldo geral (sincronizado com Firestore).
           </p>
         </div>
 
@@ -699,6 +852,7 @@ export default function FinanceiroPage() {
                         writeStorage(next);
                         return next;
                       });
+                      void deleteFromFirestore(l.id);
                     }}
                     type="button"
                     title="Excluir"
