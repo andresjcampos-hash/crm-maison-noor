@@ -4,6 +4,19 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+// 🔥 Firebase (mesmo padrão do seu projeto)
+import { db } from "@/lib/firebase";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  orderBy,
+  query,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
+
 type Origem = "instagram" | "whatsapp" | "indicacao" | "site" | "outros";
 type Status =
   | "novo"
@@ -44,7 +57,7 @@ type Lead = {
   origin?: Origem; // alguns registros antigos podem usar "origin"
 };
 
-const STORAGE_KEY = "maison_noor_crm_leads_v1";
+const STORAGE_KEY = "maison_noor_crm_leads_v1"; // (legado) — não usamos mais pra salvar
 
 const STATUS_OPTIONS = [
   { v: "novo", label: "Novo" },
@@ -72,6 +85,10 @@ function uid(): string {
     return crypto.randomUUID();
   }
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function onlyDigits(v: string): string {
+  return (v || "").replace(/\D/g, "");
 }
 
 // Resolve nome se estiver salvo como name/title em leads antigos
@@ -115,6 +132,208 @@ function origemLabel(o?: Origem | string): string {
   };
   const key = o.toLowerCase() as Origem;
   return map[key] || "—";
+}
+
+/* ======================================================
+   ✅ FIX: Firestore NÃO aceita undefined
+   - Remove undefined de objetos/arrays antes de setDoc/updateDoc
+====================================================== */
+function cleanUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => cleanUndefinedDeep(v))
+      .filter((v) => v !== undefined) as unknown as T;
+  }
+
+  if (value && typeof value === "object") {
+    const out: any = {};
+    for (const [k, v] of Object.entries(value as any)) {
+      if (v === undefined) continue;
+      const vv = cleanUndefinedDeep(v);
+      if (vv === undefined) continue;
+      out[k] = vv;
+    }
+    return out;
+  }
+
+  return value;
+}
+
+/* ======================================================
+   ✅ NORMALIZAÇÃO ROBUSTA
+   - Garante perfumes = [] (evita crash no .slice)
+   - Garante historico = []
+   - Garante createdAt/updatedAt
+====================================================== */
+function normalizeLeadFromFirestore(id: string, data: any): Lead {
+  const nomeNorm = resolveLeadNome(data) || "Sem nome";
+  const origemNorm = resolveLeadOrigem(data);
+
+  const perfumesArr = Array.isArray(data?.perfumes)
+    ? data.perfumes.filter((x: any) => typeof x === "string")
+    : [];
+
+  const histArr = Array.isArray(data?.historico)
+    ? data.historico
+        .filter((h: any) => h && typeof h === "object")
+        .map((h: any) => ({
+          id: typeof h.id === "string" ? h.id : uid(),
+          data: typeof h.data === "string" ? h.data : new Date().toISOString(),
+          tipo: (["msg", "ligacao", "obs", "pagamento", "envio"].includes(h.tipo)
+            ? h.tipo
+            : "obs") as HistoricoTipo,
+          texto: typeof h.texto === "string" ? h.texto : "",
+        }))
+    : [];
+
+  const createdAt =
+    typeof data?.createdAt === "string" ? data.createdAt : new Date().toISOString();
+  const updatedAt =
+    typeof data?.updatedAt === "string"
+      ? data.updatedAt
+      : typeof data?.createdAt === "string"
+        ? data.createdAt
+        : new Date().toISOString();
+
+  const statusOk: Status[] = [
+    "novo",
+    "chamou_no_whatsapp",
+    "negociacao",
+    "pagou",
+    "enviado",
+    "finalizado",
+    "perdido",
+  ];
+  const status = statusOk.includes(data?.status) ? (data.status as Status) : "novo";
+
+  return {
+    id,
+    nome: nomeNorm,
+    telefone: typeof data?.telefone === "string" ? onlyDigits(data.telefone) : "",
+    origem: origemNorm,
+    valorEstimado: Number(data?.valorEstimado || 0),
+    perfumes: perfumesArr,
+    status,
+    createdAt,
+    updatedAt,
+    observacoes: typeof data?.observacoes === "string" ? data.observacoes : "",
+    historico: histArr,
+
+    // compat legado
+    name: data?.name,
+    title: data?.title,
+    origin: data?.origin,
+  };
+}
+
+/* ======================================================
+   ✅ FIRESTORE (Leads)
+   - leads/{leadId}
+====================================================== */
+const LEADS_COL = collection(db, "leads");
+
+async function fetchLeadsFromFirestore(): Promise<Lead[]> {
+  const q = query(LEADS_COL, orderBy("updatedAt", "desc"));
+  const snap = await getDocs(q);
+
+  return snap.docs.map((d) => normalizeLeadFromFirestore(d.id, d.data() || {}));
+}
+
+async function saveLeadToFirestore(l: Lead): Promise<void> {
+  const ref = doc(LEADS_COL, l.id);
+
+  // garante arrays (evita gravar undefined)
+  const safeLead: Lead = {
+    ...l,
+    telefone: onlyDigits(l.telefone || ""),
+    nome: (l.nome || "").trim() || "Sem nome",
+    origem: resolveLeadOrigem(l),
+    perfumes: Array.isArray(l.perfumes) ? l.perfumes.filter(Boolean) : [],
+    historico: Array.isArray(l.historico) ? l.historico : [],
+    observacoes: typeof l.observacoes === "string" ? l.observacoes : "",
+  };
+
+  const safe = cleanUndefinedDeep(safeLead);
+  await setDoc(ref, safe as any, { merge: true });
+}
+
+async function updateLeadInFirestore(
+  id: string,
+  patch: Partial<Lead>
+): Promise<void> {
+  const ref = doc(LEADS_COL, id);
+
+  // garante que não manda perfumes/historico como undefined
+  const safePatch: any = { ...patch };
+  if (safePatch.telefone !== undefined) safePatch.telefone = onlyDigits(String(safePatch.telefone));
+  if (safePatch.nome !== undefined) safePatch.nome = String(safePatch.nome).trim();
+  if (safePatch.perfumes !== undefined) {
+    safePatch.perfumes = Array.isArray(safePatch.perfumes)
+      ? safePatch.perfumes.filter((x: any) => typeof x === "string")
+      : [];
+  }
+  if (safePatch.historico !== undefined) {
+    safePatch.historico = Array.isArray(safePatch.historico) ? safePatch.historico : [];
+  }
+  if (safePatch.observacoes !== undefined) {
+    safePatch.observacoes = typeof safePatch.observacoes === "string" ? safePatch.observacoes : "";
+  }
+
+  const safe = cleanUndefinedDeep(safePatch);
+  await updateDoc(ref, safe as any);
+}
+
+async function deleteLeadFromFirestore(id: string): Promise<void> {
+  const ref = doc(LEADS_COL, id);
+  await deleteDoc(ref);
+}
+
+// (legado) somente para ler leads antigos do localStorage e normalizar
+function loadFromStorageLegacy(): Lead[] {
+  try {
+    if (typeof window === "undefined") return [];
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    const normalized = parsed
+      .map((l: any) => {
+        const resolvedNome = resolveLeadNome(l);
+        const resolvedOrigem = resolveLeadOrigem(l);
+
+        const perfumesArr = Array.isArray(l?.perfumes)
+          ? l.perfumes.filter((x: any) => typeof x === "string")
+          : [];
+
+        const createdAt =
+          typeof l?.createdAt === "string" ? l.createdAt : new Date().toISOString();
+        const updatedAt =
+          typeof l?.updatedAt === "string"
+            ? l.updatedAt
+            : typeof l?.createdAt === "string"
+              ? l.createdAt
+              : new Date().toISOString();
+
+        return {
+          ...l,
+          id: typeof l?.id === "string" ? l.id : uid(),
+          nome: resolvedNome || "Sem nome",
+          origem: resolvedOrigem,
+          telefone: typeof l?.telefone === "string" ? onlyDigits(l.telefone) : "",
+          perfumes: perfumesArr,
+          valorEstimado: Number(l?.valorEstimado || 0),
+          status: (l?.status as Status) || "novo",
+          createdAt,
+          updatedAt,
+        } as Lead;
+      })
+      .filter((l: any) => l && typeof l.id === "string" && l.id);
+
+    return normalized as Lead[];
+  } catch {
+    return [];
+  }
 }
 
 function NavCRM() {
@@ -257,8 +476,12 @@ export default function LeadsPage() {
   const [histTipo, setHistTipo] = useState<HistoricoTipo>("msg");
   const [histTexto, setHistTexto] = useState("");
 
-  function onlyDigits(v: string): string {
-    return v.replace(/\D/g, "");
+  // pequena proteção para limpar msg sozinha
+  function toast(t: string, ms = 1800): void {
+    setMsg(t);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => setMsg(""), ms);
+    }
   }
 
   function parseBRL(v: string): number {
@@ -279,46 +502,64 @@ export default function LeadsPage() {
     });
   }
 
-  function loadFromStorage(): Lead[] {
+  async function refresh(silent = false): Promise<void> {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-
-      const normalized = parsed
-        .map((l: any) => {
-          const resolvedNome = resolveLeadNome(l);
-          const resolvedOrigem = resolveLeadOrigem(l);
-
-          return {
-            ...l,
-            nome: resolvedNome,
-            origem: resolvedOrigem,
-            telefone:
-              typeof l?.telefone === "string" ? onlyDigits(l.telefone) : "",
-            perfumes: Array.isArray(l?.perfumes) ? l.perfumes : [],
-            valorEstimado: Number(l?.valorEstimado || 0),
-          } as Lead;
-        })
-        .filter((l: any) => l && typeof l.id === "string" && l.id);
-
-      return normalized as Lead[];
-    } catch {
-      return [];
+      const lista = await fetchLeadsFromFirestore();
+      setLeads(lista);
+      if (!silent) toast("🔄 Atualizado!");
+    } catch (err) {
+      console.error("Erro ao carregar leads do Firestore:", err);
+      toast("⚠️ Não consegui carregar leads do Firebase. Veja o console (F12).", 3200);
     }
   }
 
-  function saveToStorage(next: Lead[]): void {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  }
-
   useEffect(() => {
-    const loaded = loadFromStorage();
-    setLeads(loaded);
+    let alive = true;
 
-    if (loaded.length) saveToStorage(loaded);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    (async () => {
+      try {
+        const lista = await fetchLeadsFromFirestore();
+        if (!alive) return;
+
+        // ✅ se já tem no Firebase, usa ele
+        if (lista.length) {
+          setLeads(lista);
+          return;
+        }
+
+        // ✅ se Firebase está vazio, tenta "resgatar" do localStorage (legado)
+        const legacy = loadFromStorageLegacy();
+        if (legacy.length) {
+          setLeads(legacy);
+
+          try {
+            await Promise.all(legacy.map((l) => saveLeadToFirestore(l)));
+            const lista2 = await fetchLeadsFromFirestore();
+            if (!alive) return;
+            setLeads(lista2);
+
+            // opcional: limpa o legado pra evitar confusão
+            // localStorage.removeItem(STORAGE_KEY);
+
+            toast("✅ Leads antigos importados para o Firebase!", 2400);
+          } catch (e) {
+            console.error("Falha ao importar leads do localStorage para Firestore:", e);
+            toast("⚠️ Mostrei seus leads antigos, mas não consegui importar pro Firebase (F12).", 3400);
+          }
+
+          return;
+        }
+
+        setLeads([]);
+      } catch (err) {
+        console.error("Erro ao carregar leads do Firestore:", err);
+        toast("⚠️ Não consegui carregar leads do Firebase. Veja o console (F12).", 3200);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
   function togglePerfume(p: string): void {
@@ -346,58 +587,84 @@ export default function LeadsPage() {
     return null;
   }
 
-  function salvar(): void {
+  async function salvar(): Promise<void> {
     const err = validar();
     if (err) {
-      setMsg(err);
+      toast(err, 2400);
       return;
     }
 
-    const valorN = parseBRL(valor);
-    const now = new Date().toISOString();
+    try {
+      const valorN = parseBRL(valor);
+      const now = new Date().toISOString();
 
-    const lead: Lead = {
-      id: uid(),
-      nome: nome.trim(),
-      telefone: onlyDigits(telefone),
-      origem: origem as Origem,
-      valorEstimado: valorN,
-      perfumes: [...perfumes],
-      status: "novo",
-      createdAt: now,
-      updatedAt: now,
-    };
+      const lead: Lead = {
+        id: uid(),
+        nome: nome.trim(),
+        telefone: onlyDigits(telefone),
+        origem: origem as Origem,
+        valorEstimado: valorN,
+        perfumes: [...perfumes],
+        status: "novo",
+        createdAt: now,
+        updatedAt: now,
+        observacoes: "",
+        historico: [],
+      };
 
-    const next = [lead, ...leads];
-    setLeads(next);
-    saveToStorage(next);
+      await saveLeadToFirestore(lead);
+      await refresh(true);
 
-    setMsg("✅ Lead salvo!");
-    setNome("");
-    setTelefone("");
-    setOrigem("");
-    setValor("");
-    setPerfumes([]);
-    setNovoPerfume("");
+      toast("✅ Lead salvo no Firebase!");
+      setNome("");
+      setTelefone("");
+      setOrigem("");
+      setValor("");
+      setPerfumes([]);
+      setNovoPerfume("");
+    } catch (e) {
+      console.error("Erro ao salvar lead no Firestore:", e);
+      toast("⚠️ Não consegui salvar no Firebase. Veja o console (F12).", 3200);
+    }
   }
 
-  function atualizarStatus(id: string, status: Status): void {
-    const now = new Date().toISOString();
-    const next = leads.map((l) =>
-      l.id === id ? { ...l, status, updatedAt: now } : l
-    );
-    setLeads(next);
-    saveToStorage(next);
-    setMsg("✅ Status atualizado!");
+  async function atualizarStatus(id: string, status: Status): Promise<void> {
+    try {
+      const now = new Date().toISOString();
+
+      // otimista na UI
+      setLeads((prev) =>
+        prev.map((l) => (l.id === id ? { ...l, status, updatedAt: now } : l))
+      );
+
+      await updateLeadInFirestore(id, { status, updatedAt: now });
+
+      toast("✅ Status atualizado!");
+    } catch (e) {
+      console.error("Erro ao atualizar status no Firestore:", e);
+      toast("⚠️ Não consegui atualizar o status no Firebase (F12).", 3200);
+      await refresh(true);
+    }
   }
 
-  function excluir(id: string): void {
-    const ok = window.confirm("Excluir este lead? (não dá para desfazer)");
+  async function excluir(id: string): Promise<void> {
+    const ok =
+      typeof window !== "undefined"
+        ? window.confirm("Excluir este lead? (não dá para desfazer)")
+        : true;
     if (!ok) return;
-    const next = leads.filter((l) => l.id !== id);
-    setLeads(next);
-    saveToStorage(next);
-    setMsg("🗑️ Lead removido.");
+
+    try {
+      // otimista na UI
+      setLeads((prev) => prev.filter((l) => l.id !== id));
+
+      await deleteLeadFromFirestore(id);
+      toast("🗑️ Lead removido.");
+    } catch (e) {
+      console.error("Erro ao excluir lead no Firestore:", e);
+      toast("⚠️ Não consegui excluir no Firebase (F12).", 3200);
+      await refresh(true);
+    }
   }
 
   const totalValor = leads.reduce(
@@ -426,22 +693,40 @@ export default function LeadsPage() {
     setHistTexto("");
   }
 
-  function salvarObservacoes(): void {
+  async function salvarObservacoes(): Promise<void> {
     if (!editingLead) return;
-    const now = new Date().toISOString();
-    const next = leads.map((l) =>
-      l.id === editingLead.id ? { ...l, observacoes: obsEdit, updatedAt: now } : l
-    );
-    setLeads(next);
-    saveToStorage(next);
-    setMsg("✅ Observações salvas!");
+
+    try {
+      const now = new Date().toISOString();
+
+      // otimista
+      setLeads((prev) =>
+        prev.map((l) =>
+          l.id === editingLead.id
+            ? { ...l, observacoes: obsEdit, updatedAt: now }
+            : l
+        )
+      );
+
+      await updateLeadInFirestore(editingLead.id, {
+        observacoes: obsEdit,
+        updatedAt: now,
+      });
+
+      toast("✅ Observações salvas!");
+    } catch (e) {
+      console.error("Erro ao salvar observações no Firestore:", e);
+      toast("⚠️ Não consegui salvar observações no Firebase (F12).", 3200);
+      await refresh(true);
+    }
   }
 
-  function addHistorico(): void {
+  async function addHistorico(): Promise<void> {
     if (!editingLead) return;
+
     const texto = histTexto.trim();
     if (!texto) {
-      setMsg("⚠️ Escreva o texto do histórico.");
+      toast("⚠️ Escreva o texto do histórico.", 2200);
       return;
     }
 
@@ -452,7 +737,9 @@ export default function LeadsPage() {
       texto,
     };
 
-    const historicoAtual = editingLead.historico || [];
+    const historicoAtual = Array.isArray(editingLead.historico)
+      ? editingLead.historico
+      : [];
     const novoHistorico = [...historicoAtual, item];
 
     // Automação de status
@@ -461,42 +748,67 @@ export default function LeadsPage() {
     if (histTipo === "envio") novoStatus = "enviado";
 
     const now = new Date().toISOString();
-    const next = leads.map((l) =>
-      l.id === editingLead.id
-        ? {
-            ...l,
-            historico: novoHistorico,
-            ...(novoStatus ? { status: novoStatus } : {}),
-            updatedAt: now,
-          }
-        : l
-    );
 
-    setLeads(next);
-    saveToStorage(next);
-    setHistTexto("");
+    try {
+      // otimista
+      setLeads((prev) =>
+        prev.map((l) =>
+          l.id === editingLead.id
+            ? {
+                ...l,
+                historico: novoHistorico,
+                ...(novoStatus ? { status: novoStatus } : {}),
+                updatedAt: now,
+              }
+            : l
+        )
+      );
 
-    setMsg(
-      novoStatus
-        ? `✅ Histórico salvo e status alterado para ${
-            STATUS_OPTIONS.find((s) => s.v === novoStatus)?.label
-          }`
-        : "✅ Histórico adicionado!"
-    );
+      await updateLeadInFirestore(editingLead.id, {
+        historico: novoHistorico,
+        ...(novoStatus ? { status: novoStatus } : {}),
+        updatedAt: now,
+      });
+
+      setHistTexto("");
+
+      toast(
+        novoStatus
+          ? `✅ Histórico salvo e status alterado para ${
+              STATUS_OPTIONS.find((s) => s.v === novoStatus)?.label
+            }`
+          : "✅ Histórico adicionado!"
+      );
+    } catch (e) {
+      console.error("Erro ao adicionar histórico no Firestore:", e);
+      toast("⚠️ Não consegui salvar histórico no Firebase (F12).", 3200);
+      await refresh(true);
+    }
   }
 
-  function removerHistorico(itemId: string): void {
+  async function removerHistorico(itemId: string): Promise<void> {
     if (!editingLead) return;
-    const now = new Date().toISOString();
-    const hist = (editingLead.historico || []).filter((h) => h.id !== itemId);
 
-    const next = leads.map((l) =>
-      l.id === editingLead.id ? { ...l, historico: hist, updatedAt: now } : l
+    const hist = (Array.isArray(editingLead.historico) ? editingLead.historico : []).filter(
+      (h) => h.id !== itemId
     );
+    const now = new Date().toISOString();
 
-    setLeads(next);
-    saveToStorage(next);
-    setMsg("🗑️ Histórico removido.");
+    try {
+      // otimista
+      setLeads((prev) =>
+        prev.map((l) =>
+          l.id === editingLead.id ? { ...l, historico: hist, updatedAt: now } : l
+        )
+      );
+
+      await updateLeadInFirestore(editingLead.id, { historico: hist, updatedAt: now });
+      toast("🗑️ Histórico removido.");
+    } catch (e) {
+      console.error("Erro ao remover histórico no Firestore:", e);
+      toast("⚠️ Não consegui remover histórico no Firebase (F12).", 3200);
+      await refresh(true);
+    }
   }
 
   // Esc fecha modal
@@ -504,9 +816,11 @@ export default function LeadsPage() {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") fecharEditar();
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (typeof window !== "undefined") {
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }
+    return;
   }, []);
 
   return (
@@ -536,6 +850,16 @@ export default function LeadsPage() {
                     {leads.length ? formatBRL(totalValor) : "—"}
                   </div>
                 </div>
+
+                {/* ✅ botão de atualizar Firebase */}
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => void refresh()}
+                  style={{ height: 38 }}
+                >
+                  Atualizar
+                </button>
               </div>
             </div>
           </header>
@@ -638,7 +962,11 @@ export default function LeadsPage() {
                   </div>
                 </div>
 
-                <button className="btnPrimary" onClick={salvar} type="button">
+                <button
+                  className="btnPrimary"
+                  onClick={() => void salvar()}
+                  type="button"
+                >
                   Salvar lead
                 </button>
               </div>
@@ -661,90 +989,92 @@ export default function LeadsPage() {
                     </thead>
 
                     <tbody>
-                      {leads.map((l) => (
-                        <tr key={l.id}>
-                          <td>
-                            <div className="name">
-                              {l.nome?.trim() || "Sem nome"}
-                            </div>
-                            <div className="meta">
-                              {origemLabel(l.origem || l.origin)}
-                            </div>
-                          </td>
+                      {leads.map((l) => {
+                        // ✅ blindagem final (não quebra mesmo se vier doc ruim)
+                        const safePerfumes = Array.isArray(l.perfumes) ? l.perfumes : [];
 
-                          <td>
-                            <div className="mono">{l.telefone}</div>
-                            <div className="meta">
-                              Atualizado:{" "}
-                              {new Date(
-                                l.updatedAt || l.createdAt
-                              ).toLocaleString("pt-BR")}
-                            </div>
-                          </td>
-
-                          <td>
-                            <div className="chips">
-                              {l.perfumes.slice(0, 4).map((p) => (
-                                <span key={p} className="chip">
-                                  {p}
-                                </span>
-                              ))}
-                              {l.perfumes.length > 4 ? (
-                                <span className="more">
-                                  +{l.perfumes.length - 4}
-                                </span>
-                              ) : null}
-                            </div>
-                            {l.observacoes ? (
-                              <div className="obsMini">
-                                📝 {l.observacoes.slice(0, 40)}…
+                        return (
+                          <tr key={l.id}>
+                            <td>
+                              <div className="name">
+                                {l.nome?.trim() || "Sem nome"}
                               </div>
-                            ) : null}
-                          </td>
+                              <div className="meta">
+                                {origemLabel(l.origem || l.origin)}
+                              </div>
+                            </td>
 
-                          <td className="mono">
-                            {formatBRL(Number(l.valorEstimado || 0))}
-                          </td>
+                            <td>
+                              <div className="mono">{l.telefone}</div>
+                              <div className="meta">
+                                Atualizado:{" "}
+                                {new Date(l.updatedAt || l.createdAt).toLocaleString(
+                                  "pt-BR"
+                                )}
+                              </div>
+                            </td>
 
-                          <td>
-                            <select
-                              className="selectSmall"
-                              value={l.status}
-                              onChange={(e) =>
-                                atualizarStatus(
-                                  l.id,
-                                  e.target.value as Status
-                                )
-                              }
-                            >
-                              {STATUS_OPTIONS.map((s) => (
-                                <option key={s.v} value={s.v}>
-                                  {s.label}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
+                            <td>
+                              <div className="chips">
+                                {safePerfumes.slice(0, 4).map((p) => (
+                                  <span key={p} className="chip">
+                                    {p}
+                                  </span>
+                                ))}
+                                {safePerfumes.length > 4 ? (
+                                  <span className="more">
+                                    +{safePerfumes.length - 4}
+                                  </span>
+                                ) : null}
+                              </div>
+                              {l.observacoes ? (
+                                <div className="obsMini">
+                                  📝 {l.observacoes.slice(0, 40)}…
+                                </div>
+                              ) : null}
+                            </td>
 
-                          <td>
-                            <div className="actionsRow">
-                              <button
-                                className="btn"
-                                type="button"
-                                onClick={() => abrirEditar(l)}
+                            <td className="mono">
+                              {formatBRL(Number(l.valorEstimado || 0))}
+                            </td>
+
+                            <td>
+                              <select
+                                className="selectSmall"
+                                value={l.status}
+                                onChange={(e) =>
+                                  void atualizarStatus(l.id, e.target.value as Status)
+                                }
                               >
-                                Editar
-                              </button>
-                              <button
-                                className="btnDanger"
-                                onClick={() => excluir(l.id)}
-                                type="button"
-                              >
-                                Excluir
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                                {STATUS_OPTIONS.map((s) => (
+                                  <option key={s.v} value={s.v}>
+                                    {s.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+
+                            <td>
+                              <div className="actionsRow">
+                                <button
+                                  className="btn"
+                                  type="button"
+                                  onClick={() => abrirEditar(l)}
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  className="btnDanger"
+                                  onClick={() => void excluir(l.id)}
+                                  type="button"
+                                >
+                                  Excluir
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
 
                       {leads.length === 0 ? (
                         <tr>
@@ -763,10 +1093,7 @@ export default function LeadsPage() {
           {/* MODAL EDITAR */}
           {openEdit && editingLead ? (
             <div className="modalBackdrop" onMouseDown={fecharEditar}>
-              <div
-                className="modal"
-                onMouseDown={(e) => e.stopPropagation()}
-              >
+              <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
                 <div className="modalHead">
                   <div>
                     <div className="modalKicker">Editar lead</div>
@@ -800,7 +1127,7 @@ export default function LeadsPage() {
                     />
                     <button
                       className="btnPrimary"
-                      onClick={salvarObservacoes}
+                      onClick={() => void salvarObservacoes()}
                       type="button"
                     >
                       Salvar observações
@@ -832,7 +1159,7 @@ export default function LeadsPage() {
 
                       <button
                         className="btn"
-                        onClick={addHistorico}
+                        onClick={() => void addHistorico()}
                         type="button"
                       >
                         Adicionar
@@ -840,19 +1167,15 @@ export default function LeadsPage() {
                     </div>
 
                     <div className="histList">
-                      {(editingLead.historico || [])
+                      {(Array.isArray(editingLead.historico) ? editingLead.historico : [])
                         .slice()
-                        .sort((a, b) =>
-                          (b.data || "").localeCompare(a.data || "")
-                        )
+                        .sort((a, b) => (b.data || "").localeCompare(a.data || ""))
                         .map((h) => (
                           <div key={h.id} className="histItem">
                             <div className="histTop">
                               <span className="histTag">
-                                {
-                                  HIST_TIPOS.find((x) => x.v === h.tipo)
-                                    ?.label || h.tipo
-                                }
+                                {HIST_TIPOS.find((x) => x.v === h.tipo)?.label ||
+                                  h.tipo}
                               </span>
                               <span className="histDate">
                                 {new Date(h.data).toLocaleString("pt-BR")}
@@ -861,7 +1184,7 @@ export default function LeadsPage() {
                             <div className="histText">{h.texto}</div>
                             <button
                               className="btnDanger"
-                              onClick={() => removerHistorico(h.id)}
+                              onClick={() => void removerHistorico(h.id)}
                               type="button"
                             >
                               Remover
@@ -877,9 +1200,9 @@ export default function LeadsPage() {
                     </div>
 
                     <div className="hint">
-                      * Se você escolher <strong>Pagamento</strong> o status
-                      vira <strong>Pagou</strong>. Se escolher{" "}
-                      <strong>Envio</strong> vira <strong>Enviado</strong>.
+                      * Se você escolher <strong>Pagamento</strong> o status vira{" "}
+                      <strong>Pagou</strong>. Se escolher <strong>Envio</strong>{" "}
+                      vira <strong>Enviado</strong>.
                     </div>
                   </div>
                 </div>
@@ -956,6 +1279,7 @@ export default function LeadsPage() {
             display: flex;
             gap: 8px;
             flex-wrap: wrap;
+            align-items: center;
           }
           .stat {
             min-width: 150px;
