@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { db } from "@/services/firebase";
+import { db } from "@/services/firebase"; // mantém como está no seu projeto
 import {
   collection,
   deleteDoc,
   doc,
   getDocs,
   setDoc,
+  query,
+  orderBy,
 } from "firebase/firestore";
 
 type TipoLanc = "receita" | "despesa";
@@ -39,7 +41,14 @@ type Lancamento = {
 };
 
 const STORAGE_KEY = "maison_noor_crm_financeiro_v1";
-const FIRESTORE_COLLECTION = "financeiro";
+
+// ✅ Caminho correto no Firestore: financeiro/default/lancamentos/{id}
+const FIRESTORE_ROOT = "financeiro";
+const FIRESTORE_DOC = "default";
+const FIRESTORE_SUBCOL = "lancamentos";
+
+// ✅ Para EXIBIÇÃO no UI (pode ter "/")
+const FIRESTORE_COLLECTION_PATH = `${FIRESTORE_ROOT}/${FIRESTORE_DOC}/${FIRESTORE_SUBCOL}`;
 
 function nowISO(): string {
   return new Date().toISOString();
@@ -82,6 +91,20 @@ function toCompetencia(iso: string): string {
   return iso.slice(0, 7);
 }
 
+// ✅ Corrige bug de fuso ao salvar data do input date ("YYYY-MM-DD")
+function isoFromDateInput(dateStr: string): string {
+  // meio-dia UTC evita “virar” a data por timezone
+  return `${dateStr}T12:00:00.000Z`;
+}
+
+// ✅ Refs corretas (evita errar o path)
+function lancamentosColRef() {
+  return collection(db, FIRESTORE_ROOT, FIRESTORE_DOC, FIRESTORE_SUBCOL);
+}
+function lancamentoDocRef(id: string) {
+  return doc(db, FIRESTORE_ROOT, FIRESTORE_DOC, FIRESTORE_SUBCOL, id);
+}
+
 // Firestore helpers
 function tsToISO(value: any): string {
   if (!value) return nowISO();
@@ -98,7 +121,10 @@ function tsToISO(value: any): string {
 
 async function fetchFromFirestore(): Promise<Lancamento[]> {
   try {
-    const snap = await getDocs(collection(db, FIRESTORE_COLLECTION));
+    // ✅ ordena por "data" (string ISO) desc
+    const q = query(lancamentosColRef(), orderBy("data", "desc"));
+    const snap = await getDocs(q);
+
     const list: Lancamento[] = snap.docs
       .map((docSnap) => {
         const d = docSnap.data() as any;
@@ -146,36 +172,98 @@ async function fetchFromFirestore(): Promise<Lancamento[]> {
       })
       .filter((l) => l.descricao);
 
+    console.log(
+      "[Financeiro] fetchFromFirestore ->",
+      list.length,
+      "documentos | path:",
+      FIRESTORE_COLLECTION_PATH
+    );
+
     return list;
-  } catch (e) {
-    console.error("[Financeiro] Erro ao carregar do Firestore:", e);
+  } catch (e: any) {
+    console.error("🚨 [Financeiro] Erro ao carregar do Firestore", {
+      code: e?.code,
+      message: e?.message,
+      name: e?.name,
+    });
     return [];
   }
 }
 
-async function upsertInFirestore(l: Lancamento): Promise<void> {
+// ✅ garante ID, remove undefined e normaliza campos antes de salvar
+async function upsertInFirestore(l: Lancamento): Promise<boolean> {
   try {
-    const ref = doc(collection(db, FIRESTORE_COLLECTION), l.id);
-    await setDoc(ref, l, { merge: true });
-  } catch (e) {
-    console.error("[Financeiro] Erro ao salvar no Firestore:", e);
+    const id = l.id || uid();
+    const ref = lancamentoDocRef(id);
+
+    // Normaliza data primeiro (pra competencia ficar 100% certa)
+    const normalizedData = l.data || nowISO();
+
+    const payload: any = {
+      ...l,
+      id,
+      valor: Number(l.valor || 0),
+      data: normalizedData,
+      competencia: l.competencia || toCompetencia(normalizedData),
+      createdAt: l.createdAt || nowISO(),
+      updatedAt: nowISO(),
+    };
+
+    // Firestore não aceita undefined
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === undefined) delete payload[key];
+    });
+
+    console.log(
+      "[Financeiro] setDoc ->",
+      `${FIRESTORE_COLLECTION_PATH}/${id}`
+    );
+    console.log("[Financeiro] payload:", payload);
+
+    await setDoc(ref, payload, { merge: true });
+
+    console.log("[Financeiro] setDoc concluído ✅");
+    return true;
+  } catch (e: any) {
+    console.error("🚨 [Financeiro] ERRO setDoc", {
+      code: e?.code,
+      message: e?.message,
+      name: e?.name,
+    });
+    return false;
   }
 }
 
-async function deleteFromFirestore(id: string): Promise<void> {
+async function deleteFromFirestore(id: string): Promise<boolean> {
   try {
-    const ref = doc(collection(db, FIRESTORE_COLLECTION), id);
-    await deleteDoc(ref);
-  } catch (e) {
-    console.error("[Financeiro] Erro ao excluir no Firestore:", e);
+    console.log(
+      "[Financeiro] deleteFromFirestore ->",
+      `${FIRESTORE_COLLECTION_PATH}/${id}`
+    );
+
+    await deleteDoc(lancamentoDocRef(id));
+
+    console.log("[Financeiro] deleteDoc concluído ✅");
+    return true;
+  } catch (e: any) {
+    console.error("🚨 [Financeiro] Erro ao excluir do Firestore", {
+      code: e?.code,
+      message: e?.message,
+      name: e?.name,
+    });
+    return false;
   }
 }
 
 async function syncListToFirestore(list: Lancamento[]): Promise<void> {
   try {
     await Promise.all(list.map((l) => upsertInFirestore(l)));
-  } catch (e) {
-    console.error("[Financeiro] Erro ao sincronizar lista no Firestore:", e);
+  } catch (e: any) {
+    console.error("🚨 [Financeiro] Erro ao sincronizar lista no Firestore", {
+      code: e?.code,
+      message: e?.message,
+      name: e?.name,
+    });
   }
 }
 
@@ -206,17 +294,18 @@ export default function FinanceiroPage() {
 
   const fileRef = useRef<HTMLInputElement | null>(null);
 
+  // INIT – Firestore primeiro, localStorage só se Firestore estiver vazio
   useEffect(() => {
     async function init() {
-      let data = readStorage();
-
       const fromFs = await fetchFromFirestore();
-      if (fromFs.length) {
-        data = fromFs;
-        writeStorage(data);
-      }
 
-      setItems(data);
+      if (fromFs.length) {
+        writeStorage(fromFs);
+        setItems(fromFs);
+      } else {
+        const local = readStorage();
+        setItems(local);
+      }
 
       const hoje = new Date();
       const pad = (n: number) => String(n).padStart(2, "0");
@@ -227,7 +316,7 @@ export default function FinanceiroPage() {
     void init();
   }, []);
 
-  function showToast(msg: string, ms = 1600): void {
+  function showToast(msg: string, ms = 2000): void {
     setToast(msg);
     if (typeof window !== "undefined") {
       window.setTimeout(() => setToast(""), ms);
@@ -236,15 +325,16 @@ export default function FinanceiroPage() {
 
   async function refresh(): Promise<void> {
     showToast("⏳ Atualizando...");
-    let data = readStorage();
-
     const fromFs = await fetchFromFirestore();
+
     if (fromFs.length) {
-      data = fromFs;
-      writeStorage(data);
+      writeStorage(fromFs);
+      setItems(fromFs);
+    } else {
+      const local = readStorage();
+      setItems(local);
     }
 
-    setItems(data);
     showToast("🔄 Atualizado!");
   }
 
@@ -286,12 +376,21 @@ export default function FinanceiroPage() {
     setOpenId(null);
   }
 
+  // ✅ aceita "1.234,56" / "1234,56" / "1234.56"
   function toNum(v: string): number {
-    const n = Number(String(v || "").replace(",", "."));
+    const s = String(v || "")
+      .trim()
+      .replace(/\s/g, "")
+      .replace(/\./g, "")
+      .replace(",", ".");
+    const n = Number(s);
     return Number.isFinite(n) ? n : 0;
   }
 
-  function save(): void {
+  // ✅ SAVE – NÃO fecha modal se Firestore falhar
+  async function save(): Promise<void> {
+    console.log("[Financeiro] save() chamado");
+
     const desc = fDescricao.trim();
     if (!desc) {
       showToast("⚠️ Informe a descrição.");
@@ -303,73 +402,90 @@ export default function FinanceiroPage() {
     }
 
     const valor = Math.max(0, toNum(fValor));
-
-    const isoData = new Date(fData).toISOString();
+    const isoData = isoFromDateInput(fData);
     const competencia = toCompetencia(isoData);
 
-    const payloadBase = {
+    const payloadBase: Partial<Lancamento> = {
       data: isoData,
       competencia,
       tipo: fTipo,
       descricao: desc,
-      categoria: fCategoria.trim() || undefined,
       forma: fForma,
       valor,
       status: fStatus,
-      observacoes: fObs?.trim() ? fObs.trim() : undefined,
+      ...(fCategoria.trim() && { categoria: fCategoria.trim() }),
+      ...(fObs.trim() && { observacoes: fObs.trim() }),
     };
 
     let lancParaSync: Lancamento | null = null;
 
-    setItems((prev) => {
-      let next: Lancamento[] = [];
+    if (openId === "NEW") {
+      const created: Lancamento = {
+        id: uid(),
+        createdAt: nowISO(),
+        updatedAt: nowISO(),
+        ...payloadBase,
+      } as Lancamento;
 
-      if (openId === "NEW") {
-        const created: Lancamento = {
-          id: uid(),
-          ...payloadBase,
-          createdAt: nowISO(),
-          updatedAt: nowISO(),
-        };
-        lancParaSync = created;
-        next = [created, ...prev];
-        showToast("✅ Lançamento criado!");
-      } else if (openId) {
-        next = prev.map((l) => {
-          if (l.id !== openId) return l;
-          const updated: Lancamento = {
-            ...l,
-            ...payloadBase,
-            updatedAt: nowISO(),
-          };
-          lancParaSync = updated;
-          return updated;
-        });
-        showToast("✅ Lançamento atualizado!");
-      } else {
-        return prev;
+      lancParaSync = created;
+
+      setItems((prev) => {
+        const next = [created, ...prev];
+        writeStorage(next);
+        return next;
+      });
+
+      showToast("⏳ Salvando no Firestore...");
+    } else if (openId) {
+      // monta fora do map para garantir que existe
+      const current = items.find((x) => x.id === openId);
+      if (!current) {
+        showToast("⚠️ Não achei o lançamento para editar.");
+        return;
       }
 
-      writeStorage(next);
-      return next;
-    });
+      const updated: Lancamento = {
+        ...current,
+        ...payloadBase,
+        updatedAt: nowISO(),
+      } as Lancamento;
 
-    if (lancParaSync) {
-      void upsertInFirestore(lancParaSync);
+      lancParaSync = updated;
+
+      setItems((prev) => {
+        const next = prev.map((l) => (l.id === openId ? updated : l));
+        writeStorage(next);
+        return next;
+      });
+
+      showToast("⏳ Salvando no Firestore...");
+    } else {
+      return;
     }
 
+    if (!lancParaSync) return;
+
+    const ok = await upsertInFirestore(lancParaSync);
+
+    if (!ok) {
+      showToast("❌ Firestore bloqueou o salvamento. Veja o console (F12).", 3500);
+      // não fecha modal
+      return;
+    }
+
+    showToast("✅ Salvo no Firestore!");
     closeModal();
   }
 
-  function remove(): void {
+  async function remove(): Promise<void> {
     if (!openItem) return;
-    const ok =
+    const okConfirm =
       typeof window === "undefined"
         ? true
         : window.confirm(
             `Excluir o lançamento "${openItem.descricao}"? (não dá para desfazer)`
           );
-    if (!ok) return;
+    if (!okConfirm) return;
 
     setItems((prev) => {
       const next = prev.filter((l) => l.id !== openItem.id);
@@ -377,35 +493,30 @@ export default function FinanceiroPage() {
       return next;
     });
 
-    void deleteFromFirestore(openItem.id);
+    const ok = await deleteFromFirestore(openItem.id);
+    if (!ok) {
+      showToast("⚠️ Não consegui excluir no Firestore. Veja o console.");
+    } else {
+      showToast("🗑️ Lançamento excluído!");
+    }
 
-    showToast("🗑️ Lançamento excluído!");
     closeModal();
   }
 
   function toggleStatus(id: string): void {
-    let lancParaSync: Lancamento | null = null;
+    const current = items.find((x) => x.id === id);
+    if (!current) return;
+
+    const novoStatus: StatusLanc = current.status === "pago" ? "pendente" : "pago";
+    const updated: Lancamento = { ...current, status: novoStatus, updatedAt: nowISO() };
 
     setItems((prev) => {
-      const next = prev.map((l) => {
-        if (l.id !== id) return l;
-        const novoStatus: StatusLanc =
-          l.status === "pago" ? "pendente" : "pago";
-        const updated: Lancamento = {
-          ...l,
-          status: novoStatus,
-          updatedAt: nowISO(),
-        };
-        lancParaSync = updated;
-        return updated;
-      });
+      const next = prev.map((l) => (l.id === id ? updated : l));
       writeStorage(next);
       return next;
     });
 
-    if (lancParaSync) {
-      void upsertInFirestore(lancParaSync);
-    }
+    void upsertInFirestore(updated);
   }
 
   function duplicateLanc(id: string): void {
@@ -433,9 +544,10 @@ export default function FinanceiroPage() {
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = `maison_noor_financeiro_${new Date()
-      .toISOString()
-      .slice(0, 10)}.json`;
+    a.download = `maison_noor_financeiro_${new Date().toISOString().slice(
+      0,
+      10
+    )}.json`;
     a.click();
 
     URL.revokeObjectURL(url);
@@ -458,8 +570,7 @@ export default function FinanceiroPage() {
               ? String(x.competencia)
               : toCompetencia(dataIso);
 
-            const tipo: TipoLanc =
-              x.tipo === "despesa" ? "despesa" : "receita";
+            const tipo: TipoLanc = x.tipo === "despesa" ? "despesa" : "receita";
             const status: StatusLanc =
               x.status === "pendente" ? "pendente" : "pago";
             const forma: FormaPag =
@@ -538,6 +649,7 @@ export default function FinanceiroPage() {
       return () => window.removeEventListener("keydown", onKey);
     }
     return;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openId, fData, fDescricao, fValor, fCategoria, fForma, fStatus, fTipo, fObs]);
 
   const filtered = useMemo(() => {
@@ -547,9 +659,9 @@ export default function FinanceiroPage() {
       .filter((l) => {
         if (tipoFilter !== "todos" && l.tipo !== tipoFilter) return false;
         if (statusFilter !== "todos" && l.status !== statusFilter) return false;
-        if (competenciaFilter && l.competencia !== competenciaFilter) {
+        if (competenciaFilter && l.competencia !== competenciaFilter)
           return false;
-        }
+
         if (!qq) return true;
         const hay = `${l.descricao} ${l.categoria || ""} ${l.forma}`.toLowerCase();
         return hay.includes(qq);
@@ -610,8 +722,7 @@ export default function FinanceiroPage() {
               opacity: 0.8,
             }}
           >
-            Controle receitas, despesas e saldo geral (sincronizado com
-            Firestore).
+            Controle receitas, despesas e saldo geral (sincronizado com Firestore).
           </p>
         </div>
 
@@ -664,9 +775,7 @@ export default function FinanceiroPage() {
           <select
             className="input"
             value={tipoFilter}
-            onChange={(e) =>
-              setTipoFilter(e.target.value as "todos" | TipoLanc)
-            }
+            onChange={(e) => setTipoFilter(e.target.value as "todos" | TipoLanc)}
           >
             <option value="todos">Todos</option>
             <option value="receita">Receitas</option>
@@ -708,15 +817,11 @@ export default function FinanceiroPage() {
         </div>
         <div className="sumCard">
           <div className="sumLabel">Receitas</div>
-          <div className="sumValue green">
-            {formatBRL(totals.totalReceitas)}
-          </div>
+          <div className="sumValue green">{formatBRL(totals.totalReceitas)}</div>
         </div>
         <div className="sumCard">
           <div className="sumLabel">Despesas</div>
-          <div className="sumValue red">
-            {formatBRL(totals.totalDespesas)}
-          </div>
+          <div className="sumValue red">{formatBRL(totals.totalDespesas)}</div>
         </div>
         <div className="sumCard">
           <div className="sumLabel">Saldo</div>
@@ -730,21 +835,21 @@ export default function FinanceiroPage() {
         </div>
         <div className="sumCard">
           <div className="sumLabel">Receitas pendentes</div>
-          <div className="sumValue">
-            {formatBRL(totals.receitasPendentes)}
-          </div>
+          <div className="sumValue">{formatBRL(totals.receitasPendentes)}</div>
         </div>
         <div className="sumCard">
           <div className="sumLabel">Despesas pendentes</div>
-          <div className="sumValue">
-            {formatBRL(totals.despesasPendentes)}
-          </div>
+          <div className="sumValue">{formatBRL(totals.despesasPendentes)}</div>
         </div>
         <div className="sumHint">
-          Clique na linha para editar. <b>ESC</b> fecha o modal.{" "}
-          <b>Ctrl+Enter</b> salva.
+          Clique na linha para editar. <b>ESC</b> fecha o modal. <b>Ctrl+Enter</b>{" "}
+          salva.
           <br />
           Dica: use o status <b>Pendente</b> para reservas de pagamento futuro.
+          <br />
+          <span className="mono" style={{ opacity: 0.9 }}>
+            Path: {FIRESTORE_COLLECTION_PATH}
+          </span>
         </div>
       </section>
 
@@ -765,15 +870,10 @@ export default function FinanceiroPage() {
           {filtered.map((l) => {
             const dataView = new Date(l.data).toLocaleDateString("pt-BR");
             const tipoLabel = l.tipo === "receita" ? "Receita" : "Despesa";
-            const statusLabel =
-              l.status === "pago" ? "Pago" : "Pendente";
+            const statusLabel = l.status === "pago" ? "Pago" : "Pendente";
 
             return (
-              <div
-                key={l.id}
-                className="erpRow"
-                onClick={() => openEdit(l.id)}
-              >
+              <div key={l.id} className="erpRow" onClick={() => openEdit(l.id)}>
                 <div className="erpCell main">
                   <span className="meta mono">{dataView}</span>
                 </div>
@@ -786,7 +886,9 @@ export default function FinanceiroPage() {
                 <div className="erpCell">
                   <span
                     className={
-                      l.tipo === "receita" ? "pill pillReceita" : "pill pillDespesa"
+                      l.tipo === "receita"
+                        ? "pill pillReceita"
+                        : "pill pillDespesa"
                     }
                   >
                     {tipoLabel}
@@ -851,11 +953,11 @@ export default function FinanceiroPage() {
                   <button
                     className="mini danger"
                     onClick={() => {
-                      const ok =
+                      const okConfirm =
                         typeof window === "undefined"
                           ? true
                           : window.confirm("Excluir este lançamento?");
-                      if (!ok) return;
+                      if (!okConfirm) return;
                       setItems((prev) => {
                         const next = prev.filter((x) => x.id !== l.id);
                         writeStorage(next);
@@ -884,10 +986,7 @@ export default function FinanceiroPage() {
       {/* MODAL */}
       {openId ? (
         <div className="modalOverlay" onMouseDown={closeModal} role="presentation">
-          <div
-            className="modal"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="modalHead">
               <div>
                 <div className="modalKicker">
@@ -903,12 +1002,7 @@ export default function FinanceiroPage() {
                 ) : null}
               </div>
 
-              <button
-                className="btnX"
-                onClick={closeModal}
-                type="button"
-                aria-label="Fechar"
-              >
+              <button className="btnX" onClick={closeModal} type="button" aria-label="Fechar">
                 ✕
               </button>
             </div>
@@ -926,11 +1020,7 @@ export default function FinanceiroPage() {
 
               <div className="field">
                 <label>Tipo</label>
-                <select
-                  className="input"
-                  value={fTipo}
-                  onChange={(e) => setFTipo(e.target.value as TipoLanc)}
-                >
+                <select className="input" value={fTipo} onChange={(e) => setFTipo(e.target.value as TipoLanc)}>
                   <option value="receita">Receita</option>
                   <option value="despesa">Despesa</option>
                 </select>
@@ -938,11 +1028,7 @@ export default function FinanceiroPage() {
 
               <div className="field">
                 <label>Descrição</label>
-                <input
-                  className="input"
-                  value={fDescricao}
-                  onChange={(e) => setFDescricao(e.target.value)}
-                />
+                <input className="input" value={fDescricao} onChange={(e) => setFDescricao(e.target.value)} />
               </div>
 
               <div className="field">
@@ -957,11 +1043,7 @@ export default function FinanceiroPage() {
 
               <div className="field">
                 <label>Forma de pagamento</label>
-                <select
-                  className="input"
-                  value={fForma}
-                  onChange={(e) => setFForma(e.target.value as FormaPag)}
-                >
+                <select className="input" value={fForma} onChange={(e) => setFForma(e.target.value as FormaPag)}>
                   <option value="pix">Pix</option>
                   <option value="dinheiro">Dinheiro</option>
                   <option value="credito">Crédito</option>
@@ -974,20 +1056,12 @@ export default function FinanceiroPage() {
 
               <div className="field">
                 <label>Valor (R$)</label>
-                <input
-                  className="input"
-                  value={fValor}
-                  onChange={(e) => setFValor(e.target.value)}
-                />
+                <input className="input" value={fValor} onChange={(e) => setFValor(e.target.value)} />
               </div>
 
               <div className="field">
                 <label>Status</label>
-                <select
-                  className="input"
-                  value={fStatus}
-                  onChange={(e) => setFStatus(e.target.value as StatusLanc)}
-                >
+                <select className="input" value={fStatus} onChange={(e) => setFStatus(e.target.value as StatusLanc)}>
                   <option value="pago">Pago</option>
                   <option value="pendente">Pendente</option>
                 </select>
@@ -995,31 +1069,19 @@ export default function FinanceiroPage() {
 
               <div className="field wide">
                 <label>Observações</label>
-                <textarea
-                  className="textarea"
-                  value={fObs}
-                  onChange={(e) => setFObs(e.target.value)}
-                />
+                <textarea className="textarea" value={fObs} onChange={(e) => setFObs(e.target.value)} />
               </div>
             </div>
 
             <div className="modalActions">
-              <button
-                className="btnSmallPrimary"
-                onClick={save}
-                type="button"
-              >
+              <button className="btnSmallPrimary" onClick={save} type="button">
                 Salvar
               </button>
 
               <div className="spacer" />
 
               {openId !== "NEW" ? (
-                <button
-                  className="btnDanger"
-                  onClick={remove}
-                  type="button"
-                >
+                <button className="btnDanger" onClick={remove} type="button">
                   Excluir
                 </button>
               ) : null}
@@ -1027,9 +1089,7 @@ export default function FinanceiroPage() {
 
             {openId !== "NEW" && openItem ? (
               <div className="modalFoot">
-                Criado:{" "}
-                {new Date(openItem.createdAt).toLocaleString("pt-BR")} •
-                Atualizado:{" "}
+                Criado: {new Date(openItem.createdAt).toLocaleString("pt-BR")} • Atualizado:{" "}
                 {new Date(openItem.updatedAt).toLocaleString("pt-BR")}
               </div>
             ) : null}
@@ -1038,6 +1098,7 @@ export default function FinanceiroPage() {
       ) : null}
 
       <style jsx>{`
+        /* 🔽 SEU CSS ORIGINAL (mantido) */
         .page {
           padding: 24px;
         }

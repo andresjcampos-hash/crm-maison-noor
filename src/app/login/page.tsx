@@ -3,6 +3,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image"; // ✅ NOVO: para usar a logo
 import {
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
@@ -83,7 +84,6 @@ export default function LoginPage() {
         msg = "Erro de conexão. Verifique sua internet.";
       }
 
-      // Em desenvolvimento, mostra o código pra facilitar debug
       if (process.env.NODE_ENV === "development" && err?.code) {
         msg += ` (código: ${err.code})`;
       }
@@ -107,7 +107,6 @@ export default function LoginPage() {
       router.push("/crm/dashboard");
     } catch (err: any) {
       console.error(err);
-      // se o usuário fechar o popup, não mostramos erro chato
       if (err?.code !== "auth/popup-closed-by-user") {
         setErro("Não foi possível entrar com Google. Tente novamente.");
       }
@@ -124,7 +123,14 @@ export default function LoginPage() {
         {/* Logo / Brand */}
         <div className="logoRow">
           <div className="logoCircle">
-            <span className="logoLetters">MN</span>
+            {/* ✅ LOGO DENTRO DO CÍRCULO DOURADO, ARREDONDADA */}
+            <Image
+              src="/logo-maison-noor.png"
+              alt="Logo Maison Noor"
+              width={40}
+              height={40}
+              className="logoImage"
+            />
           </div>
           <div className="logoTextGroup">
             <span className="logoSmall">Maison Noor</span>
@@ -278,14 +284,15 @@ export default function LoginPage() {
           display: flex;
           align-items: center;
           justify-content: center;
+          overflow: hidden; /* ✅ garante logo redonda dentro do círculo */
         }
 
-        .logoLetters {
-          font-size: 16px;
-          font-weight: 900;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-          color: #1a1209;
+        /* ✅ imagem da logo redondinha e centralizada */
+        .logoImage {
+          width: 80%;
+          height: 80%;
+          border-radius: 999px;
+          object-fit: cover;
         }
 
         .logoTextGroup {
