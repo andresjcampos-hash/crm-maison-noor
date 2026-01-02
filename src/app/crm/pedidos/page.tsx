@@ -2,6 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+// 🔥 Firebase (mesmo padrão do seu projeto)
+import { db } from "@/lib/firebase";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  orderBy,
+  query,
+  runTransaction,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
+
 type Origem = "instagram" | "whatsapp" | "indicacao" | "site" | "outros";
 type StatusLead =
   | "novo"
@@ -79,11 +93,7 @@ type Produto = {
 };
 
 const LEADS_KEY = "maison_noor_crm_leads_v1";
-const PEDIDOS_KEY = "maison_noor_crm_pedidos_v1";
 const PRODUTOS_KEY = "maison_noor_crm_produtos_v1";
-
-/** ✅ Controle de sequência de pedidos */
-const PEDIDOS_SEQ_KEY = "maison_noor_crm_pedidos_seq_v1";
 
 // ✅ Financeiro (receitas vindas de pedidos)
 const FINANCEIRO_KEY = "maison_noor_crm_financeiro_v1";
@@ -133,7 +143,13 @@ const ORIGEM_LABEL: Record<Origem, string> = {
 };
 
 // type-guard origem
-const ORIGENS_VALIDAS = ["instagram", "whatsapp", "indicacao", "site", "outros"] as const;
+const ORIGENS_VALIDAS = [
+  "instagram",
+  "whatsapp",
+  "indicacao",
+  "site",
+  "outros",
+] as const;
 function isOrigem(v: unknown): v is Origem {
   return ORIGENS_VALIDAS.includes(v as Origem);
 }
@@ -182,12 +198,81 @@ function formatNumeroPedido(n?: number): string {
   return n.toString().padStart(4, "0");
 }
 
-/** ✅ Gera o próximo número sequencial do pedido */
-function nextPedidoNumero(): number {
-  const atual = loadJSON<number>(PEDIDOS_SEQ_KEY, 0);
-  const prox = (Number(atual) || 0) + 1;
-  saveJSON(PEDIDOS_SEQ_KEY, prox);
+/* ======================================================
+   ✅ FIRESTORE (Pedidos)
+   - pedidos/default/lista/{pedidoId}
+   - pedidos/default/counters/pedidos_seq  (sequência)
+====================================================== */
+
+const PEDIDOS_DOC = doc(db, "pedidos", "default");
+const PEDIDOS_LISTA_COL = collection(PEDIDOS_DOC, "lista");
+const PEDIDOS_COUNTER_REF = doc(PEDIDOS_DOC, "counters", "pedidos_seq");
+
+/* ======================================================
+   ✅ FIX: Firestore NÃO aceita undefined
+   - Remove undefined de objetos/arrays antes de setDoc/updateDoc
+====================================================== */
+function cleanUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => cleanUndefinedDeep(v))
+      .filter((v) => v !== undefined) as unknown as T;
+  }
+
+  if (value && typeof value === "object") {
+    const out: any = {};
+    for (const [k, v] of Object.entries(value as any)) {
+      if (v === undefined) continue;
+      const vv = cleanUndefinedDeep(v);
+      if (vv === undefined) continue;
+      out[k] = vv;
+    }
+    return out;
+  }
+
+  return value;
+}
+
+/** ✅ Gera o próximo número sequencial do pedido (Firestore transaction) */
+async function nextPedidoNumeroFS(): Promise<number> {
+  const prox = await runTransaction(db, async (tx) => {
+    const snap = await tx.get(PEDIDOS_COUNTER_REF);
+    const atual = snap.exists() ? Number((snap.data() as any)?.value || 0) : 0;
+    const next = atual + 1;
+    tx.set(PEDIDOS_COUNTER_REF, { value: next }, { merge: true });
+    return next;
+  });
   return prox;
+}
+
+/** ✅ Busca pedidos do Firestore (ordenado por createdAt ISO) */
+async function fetchPedidosFromFirestore(): Promise<Pedido[]> {
+  const q = query(PEDIDOS_LISTA_COL, orderBy("createdAt", "desc"));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ ...(d.data() as Pedido), id: d.id }));
+}
+
+/** ✅ Salva pedido no Firestore */
+async function savePedidoToFirestore(p: Pedido): Promise<void> {
+  const ref = doc(PEDIDOS_LISTA_COL, p.id);
+  const safe = cleanUndefinedDeep(p);
+  await setDoc(ref, safe as any, { merge: true });
+}
+
+/** ✅ Atualiza pedido no Firestore */
+async function updatePedidoInFirestore(
+  id: string,
+  patch: Partial<Pedido>
+): Promise<void> {
+  const ref = doc(PEDIDOS_LISTA_COL, id);
+  const safe = cleanUndefinedDeep(patch);
+  await updateDoc(ref, safe as any);
+}
+
+/** ✅ Remove pedido no Firestore */
+async function deletePedidoFromFirestore(id: string): Promise<void> {
+  const ref = doc(PEDIDOS_LISTA_COL, id);
+  await deleteDoc(ref);
 }
 
 // 🔗 Pedido -> Lead: sincroniza status do lead quando pedido muda
@@ -229,14 +314,17 @@ function shouldDevolverEstoque(status: StatusPedido): boolean {
   return status === "cancelado";
 }
 
-function ajustarEstoquePorPedido(pedido: Pedido, modo: "baixar" | "devolver"): void {
+function ajustarEstoquePorPedido(
+  pedido: Pedido,
+  modo: "baixar" | "devolver"
+): void {
   const produtos = loadJSON<Produto[]>(PRODUTOS_KEY, []);
   if (!produtos.length) return;
 
   const map = new Map<string, Produto>(produtos.map((p) => [p.id, p]));
 
   for (const it of pedido.itens || []) {
-    if (!it.produtoId) continue; // só baixa/devolve se veio do cadastro de produtos (ou vinculado)
+    if (!it.produtoId) continue;
     const p = map.get(it.produtoId);
     if (!p) continue;
 
@@ -271,40 +359,45 @@ function norm(s: string): string {
 
 // helper para mês/competência (AAAA-MM)
 function toCompetencia(iso: string): string {
-  return iso.slice(0, 7);
+  const v = String(iso || "");
+  if (v.length >= 7) return v.slice(0, 7);
+  const now = new Date().toISOString();
+  return now.slice(0, 7);
 }
 
-// ✅ helper para descrição curta no Financeiro (agora possível usar o número do pedido)
-function descricaoPedidoFinanceiro(id: string, nome?: string, numero?: number): string {
+function descricaoPedidoFinanceiro(
+  id: string,
+  nome?: string,
+  numero?: number
+): string {
   const codigo =
     typeof numero === "number" && numero > 0
       ? formatNumeroPedido(numero)
-      : id.slice(-6); // fallback antigo
-
+      : id.slice(-6);
   const base = `Venda • Pedido #${codigo}`;
   return nome ? `${base} • ${nome}` : base;
 }
 
-// ✅ migração: acerta descrições antigas no Financeiro
 function migrarDescricoesFinanceiroAntigas(): void {
   const lista = loadJSON<FinanceiroEntry[]>(FINANCEIRO_KEY, []);
   if (!lista.length) return;
 
-  const pedidos = loadJSON<Pedido[]>(PEDIDOS_KEY, []);
-
   let alterou = false;
 
   const novaLista = lista.map((l) => {
-    // só mexe em lançamentos que vieram de pedido
     if (!l.origemPedidoId) return l;
 
-    // só altera se estiver no formato antigo "Venda pedido ..."
-    if (!l.descricao.startsWith("Venda pedido")) return l;
+    const desc = String(l.descricao || "");
+    const ehAntigo =
+      desc.startsWith("Venda pedido") || desc.startsWith("Venda • Pedido");
 
-    const pedidoOrigem = pedidos.find((p) => p.id === l.origemPedidoId);
-    const numero = pedidoOrigem?.numero;
+    if (!ehAntigo) return l;
 
-    const novaDesc = descricaoPedidoFinanceiro(l.origemPedidoId, l.clienteNome, numero);
+    const novaDesc = descricaoPedidoFinanceiro(
+      l.origemPedidoId,
+      l.clienteNome,
+      undefined
+    );
     if (novaDesc === l.descricao) return l;
 
     alterou = true;
@@ -315,21 +408,16 @@ function migrarDescricoesFinanceiroAntigas(): void {
     };
   });
 
-  if (alterou) {
-    saveJSON(FINANCEIRO_KEY, novaLista);
-  }
+  if (alterou) saveJSON(FINANCEIRO_KEY, novaLista);
 }
 
-// ✅ registra receita no Financeiro quando pedido é pago
 function registrarReceitaDoPedido(p: PedidoParaFinanceiro): void {
   try {
-    // garante que o valor em storage realmente seja array
     const listaRaw = loadJSON<unknown>(FINANCEIRO_KEY, []);
     const lista: FinanceiroEntry[] = Array.isArray(listaRaw)
       ? (listaRaw as FinanceiroEntry[])
       : [];
 
-    // evita lançar duas vezes o mesmo pedido
     const jaExiste = lista.some((l) => l.origemPedidoId === p.id);
     if (jaExiste) return;
 
@@ -345,7 +433,7 @@ function registrarReceitaDoPedido(p: PedidoParaFinanceiro): void {
       descricao: p.descricao,
       categoria: "Vendas",
       forma: p.meioPagamento || "Pix",
-      valor: p.valor,
+      valor: Number(p.valor) || 0,
       observacoes: p.cliente ? `Pedido de ${p.cliente}` : undefined,
       origemPedidoId: p.id,
       clienteNome: p.cliente,
@@ -356,8 +444,27 @@ function registrarReceitaDoPedido(p: PedidoParaFinanceiro): void {
     const novaLista: FinanceiroEntry[] = [lancamento, ...lista];
     saveJSON(FINANCEIRO_KEY, novaLista);
   } catch (err) {
-    // não deixa erro de financeiro travar o salvamento do pedido
     console.error("Erro ao registrar receita do pedido:", err);
+  }
+}
+
+function firebaseCode(err: unknown): string | null {
+  try {
+    const anyErr = err as any;
+    if (anyErr?.code) return String(anyErr.code);
+
+    const msg = String(anyErr?.message || "");
+    if (msg.includes("permission-denied")) return "permission-denied";
+    if (msg.includes("Missing or insufficient permissions"))
+      return "missing-or-insufficient-permissions";
+
+    if (msg.toLowerCase().includes("unsupported field value")) {
+      return "unsupported-field-value";
+    }
+
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -367,14 +474,12 @@ export default function PedidosPage() {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [msg, setMsg] = useState("");
 
-  // modal criar pedido
   const [open, setOpen] = useState(false);
   const [leadPick, setLeadPick] = useState<string>("");
   const [clienteNome, setClienteNome] = useState("");
   const [telefone, setTelefone] = useState("");
   const [origem, setOrigem] = useState<Origem>("outros");
 
-  // item (agora com produtoId)
   const [produtoPick, setProdutoPick] = useState<string>("");
   const [itemNome, setItemNome] = useState("");
   const [itemQtd, setItemQtd] = useState(1);
@@ -386,20 +491,49 @@ export default function PedidosPage() {
   const [status, setStatus] = useState<StatusPedido>("rascunho");
   const [observacoes, setObservacoes] = useState("");
 
-  // filtros
-  const [statusFiltro, setStatusFiltro] = useState<StatusPedido | "todos">("todos");
+  const [statusFiltro, setStatusFiltro] = useState<StatusPedido | "todos">(
+    "todos"
+  );
   const [q, setQ] = useState("");
 
+  function toast(t: string, ms = 1600): void {
+    setMsg(t);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => setMsg(""), ms);
+    }
+  }
+
   useEffect(() => {
+    let alive = true;
+
     setLeads(loadJSON<Lead[]>(LEADS_KEY, []));
-    setPedidos(loadJSON<Pedido[]>(PEDIDOS_KEY, []));
     setProdutos(loadJSON<Produto[]>(PRODUTOS_KEY, []));
 
-    // 🔄 ajusta descrições antigas do Financeiro
     migrarDescricoesFinanceiroAntigas();
+
+    (async () => {
+      try {
+        const lista = await fetchPedidosFromFirestore();
+        if (!alive) return;
+        setPedidos(lista);
+      } catch (err) {
+        console.error("Erro ao carregar pedidos do Firestore:", err);
+        const code = firebaseCode(err);
+        toast(
+          code
+            ? `⚠️ Firebase: ${code} (carregar pedidos)`
+            : "⚠️ Não consegui carregar pedidos do Firebase. Veja o console (F12).",
+          3200
+        );
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ Garantir que todo pedido com status "pago" esteja no Financeiro
   useEffect(() => {
     if (!pedidos.length) return;
 
@@ -427,18 +561,24 @@ export default function PedidosPage() {
     });
   }, [pedidos]);
 
-  function toast(t: string, ms = 1400): void {
-    setMsg(t);
-    if (typeof window !== "undefined") {
-      window.setTimeout(() => setMsg(""), ms);
-    }
-  }
-
-  function refresh(): void {
+  async function refresh(): Promise<void> {
     setLeads(loadJSON<Lead[]>(LEADS_KEY, []));
-    setPedidos(loadJSON<Pedido[]>(PEDIDOS_KEY, []));
     setProdutos(loadJSON<Produto[]>(PRODUTOS_KEY, []));
-    toast("🔄 Atualizado!");
+
+    try {
+      const lista = await fetchPedidosFromFirestore();
+      setPedidos(lista);
+      toast("🔄 Atualizado!");
+    } catch (err) {
+      console.error("Erro ao atualizar pedidos:", err);
+      const code = firebaseCode(err);
+      toast(
+        code
+          ? `⚠️ Firebase: ${code} (atualizar)`
+          : "⚠️ Erro ao atualizar pedidos do Firebase (F12).",
+        2600
+      );
+    }
   }
 
   function openWhatsApp(tel: string, nome?: string): void {
@@ -486,7 +626,6 @@ export default function PedidosPage() {
     setOpen(true);
   }
 
-  // ✅ tenta casar os perfumes do lead com produtos cadastrados (por nome)
   function mapLeadPerfumesToItens(leadPerfumes: string[]): PedidoItem[] {
     const prodsAtivos = (produtos || []).filter((p) => p.ativo !== false);
     const byName = new Map<string, Produto>();
@@ -505,12 +644,10 @@ export default function PedidosPage() {
             preco: Number(exact.precoVenda || 0),
           };
         }
-        // fallback: sem produtoId (não baixa estoque)
         return { nome: nomePerfume, qtd: 1, preco: 0 };
       });
   }
 
-  // quando escolher lead, preenche dados e itens (perfumes)
   function onPickLead(leadId: string): void {
     setLeadPick(leadId);
     const l = leads.find((x) => x.id === leadId);
@@ -520,18 +657,15 @@ export default function PedidosPage() {
     setTelefone(l.telefone || "");
     setOrigem(l.origem || "outros");
 
-    // ✅ agora vincula com Produtos quando possível
     const mapped = mapLeadPerfumesToItens(l.perfumes || []);
     setItens(mapped);
 
-    // reseta o picker manual
     setProdutoPick("");
     setItemNome("");
     setItemQtd(1);
     setItemPreco(0);
   }
 
-  // ✅ ao escolher um produto, preenche nome e preço
   function onPickProduto(produtoId: string): void {
     setProdutoPick(produtoId);
     const p = produtos.find((x) => x.id === produtoId);
@@ -556,10 +690,8 @@ export default function PedidosPage() {
     const preco = Math.max(0, Number(itemPreco) || 0);
 
     const produtoId = produtoPick || undefined;
-
     setItens((prev) => [...prev, { produtoId, nome, qtd, preco }]);
 
-    // reseta input
     setProdutoPick("");
     setItemNome("");
     setItemQtd(1);
@@ -571,7 +703,9 @@ export default function PedidosPage() {
   }
 
   function updateItem(idx: number, patch: Partial<PedidoItem>): void {
-    setItens((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+    setItens((prev) =>
+      prev.map((it, i) => (i === idx ? { ...it, ...patch } : it))
+    );
   }
 
   const totals = useMemo(() => {
@@ -587,16 +721,17 @@ export default function PedidosPage() {
 
   function validatePedido(): string {
     if (!clienteNome.trim()) return "Informe o nome do cliente.";
-    if (onlyDigits(telefone).length < 10) return "Informe um telefone válido (com DDD).";
+    if (onlyDigits(telefone).length < 10)
+      return "Informe um telefone válido (com DDD).";
     if (!itens.length) return "Adicione pelo menos 1 item.";
     return "";
   }
 
-  function savePedido(): void {
+  async function savePedido(): Promise<void> {
     try {
       const err = validatePedido();
       if (err) {
-        toast(`⚠️ ${err}`, 2200);
+        toast(`⚠️ ${err}`, 2400);
         return;
       }
 
@@ -617,11 +752,11 @@ export default function PedidosPage() {
       );
       const total = Math.max(0, subtotal - descontoNum + freteNum);
 
-      // ✅ gera número sequencial do pedido
-      const numeroPedido = nextPedidoNumero();
+      const pedidoId = uid();
+      const numeroPedido = await nextPedidoNumeroFS();
 
       const p: Pedido = {
-        id: uid(),
+        id: pedidoId,
         numero: numeroPedido,
         leadId: leadPick || undefined,
         clienteNome: clienteNome.trim(),
@@ -637,13 +772,11 @@ export default function PedidosPage() {
         estoqueBaixado: false,
       };
 
-      // ✅ baixa estoque se já estiver como pago/enviado/entregue
       if (shouldBaixarEstoque(p.status)) {
         ajustarEstoquePorPedido(p, "baixar");
         p.estoqueBaixado = true;
       }
 
-      // ✅ se já salvar como "pago", lança no financeiro
       if (p.status === "pago" && total > 0) {
         registrarReceitaDoPedido({
           id: p.id,
@@ -654,106 +787,148 @@ export default function PedidosPage() {
         });
       }
 
-      const next = [p, ...pedidos];
-      setPedidos(next);
-      saveJSON(PEDIDOS_KEY, next);
+      await savePedidoToFirestore(p);
 
-      // 🔗 sincroniza lead ↔ pedido
+      setPedidos((prev) => [p, ...prev]);
+
       syncLeadStatusFromPedido(p);
       setLeads(loadJSON<Lead[]>(LEADS_KEY, []));
 
-      // atualiza produtos na tela também
       setProdutos(loadJSON<Produto[]>(PRODUTOS_KEY, []));
 
-      toast("✅ Pedido salvo!");
+      toast("✅ Pedido salvo!", 1800);
       setOpen(false);
     } catch (err) {
       console.error("Erro ao salvar pedido:", err);
-      toast("⚠️ Não consegui salvar o pedido. Veja o console (F12).");
+      const code = firebaseCode(err);
+      toast(
+        code
+          ? `⚠️ Firebase: ${code} (salvar pedido)`
+          : "⚠️ Não consegui salvar o pedido. Veja o console (F12).",
+        3400
+      );
     }
   }
 
-  function updatePedidoStatus(id: string, st: StatusPedido): void {
-    const next = pedidos.map((p) => {
-      if (p.id !== id) return p;
+  async function updatePedidoStatus(id: string, st: StatusPedido): Promise<void> {
+    try {
+      const updatedAt = new Date().toISOString();
 
-      const updated: Pedido = { ...p, status: st, updatedAt: new Date().toISOString() };
+      const next = pedidos.map((p) => {
+        if (p.id !== id) return p;
 
-      // ✅ baixa/devolve estoque com controle
-      const baixado = Boolean(updated.estoqueBaixado);
+        const updated: Pedido = { ...p, status: st, updatedAt };
 
-      if (shouldBaixarEstoque(updated.status) && !baixado) {
-        ajustarEstoquePorPedido(updated, "baixar");
-        updated.estoqueBaixado = true;
-      }
+        const baixado = Boolean(updated.estoqueBaixado);
 
-      if (shouldDevolverEstoque(updated.status) && baixado) {
-        ajustarEstoquePorPedido(updated, "devolver");
-        updated.estoqueBaixado = false;
-      }
-
-      // 🔗 sincroniza lead ↔ pedido
-      syncLeadStatusFromPedido(updated);
-
-      // ✅ quando virar PAGO, lança receita no financeiro (se ainda não lançado)
-      if (st === "pago") {
-        const subtotal = (updated.itens || []).reduce(
-          (a, it) => a + (Number(it.preco) || 0) * (Number(it.qtd) || 0),
-          0
-        );
-        const total = Math.max(
-          0,
-          subtotal - (Number(updated.desconto) || 0) + (Number(updated.frete) || 0)
-        );
-
-        if (total > 0) {
-          registrarReceitaDoPedido({
-            id: updated.id,
-            descricao: descricaoPedidoFinanceiro(
-              updated.id,
-              updated.clienteNome,
-              updated.numero
-            ),
-            valor: total,
-            cliente: updated.clienteNome,
-            data: updated.updatedAt,
-          });
+        if (shouldBaixarEstoque(updated.status) && !baixado) {
+          ajustarEstoquePorPedido(updated, "baixar");
+          updated.estoqueBaixado = true;
         }
-      }
 
-      return updated;
-    });
+        if (shouldDevolverEstoque(updated.status) && baixado) {
+          ajustarEstoquePorPedido(updated, "devolver");
+          updated.estoqueBaixado = false;
+        }
 
-    setPedidos(next);
-    saveJSON(PEDIDOS_KEY, next);
+        syncLeadStatusFromPedido(updated);
 
-    setLeads(loadJSON<Lead[]>(LEADS_KEY, []));
-    setProdutos(loadJSON<Produto[]>(PRODUTOS_KEY, []));
+        if (st === "pago") {
+          const subtotal = (updated.itens || []).reduce(
+            (a, it) => a + (Number(it.preco) || 0) * (Number(it.qtd) || 0),
+            0
+          );
+          const total = Math.max(
+            0,
+            subtotal -
+              (Number(updated.desconto) || 0) +
+              (Number(updated.frete) || 0)
+          );
 
-    toast("✅ Status atualizado!", 1200);
+          if (total > 0) {
+            registrarReceitaDoPedido({
+              id: updated.id,
+              descricao: descricaoPedidoFinanceiro(
+                updated.id,
+                updated.clienteNome,
+                updated.numero
+              ),
+              valor: total,
+              cliente: updated.clienteNome,
+              data: updated.updatedAt,
+            });
+          }
+        }
+
+        return updated;
+      });
+
+      setPedidos(next);
+
+      const updatedPedido = next.find((p) => p.id === id);
+      await updatePedidoInFirestore(id, {
+        status: st,
+        updatedAt,
+        estoqueBaixado: updatedPedido?.estoqueBaixado,
+      });
+
+      setLeads(loadJSON<Lead[]>(LEADS_KEY, []));
+      setProdutos(loadJSON<Produto[]>(PRODUTOS_KEY, []));
+
+      toast("✅ Status atualizado!", 1400);
+    } catch (err) {
+      console.error("Erro ao atualizar status no Firestore:", err);
+      const code = firebaseCode(err);
+      toast(
+        code
+          ? `⚠️ Firebase: ${code} (atualizar status)`
+          : "⚠️ Não consegui atualizar o status (Firebase). Veja o console (F12).",
+        3200
+      );
+    }
   }
 
-  function deletePedido(id: string): void {
+  function canDeletePedido(p: Pedido): boolean {
+    return p.status === "rascunho" || p.status === "aguardando_pagamento";
+  }
+
+  async function deletePedido(id: string): Promise<void> {
     const p = pedidos.find((x) => x.id === id);
     if (!p) return;
+
+    if (!canDeletePedido(p)) {
+      toast("⚠️ Só pode remover pedido em Rascunho ou Aguardando.", 2400);
+      return;
+    }
 
     if (typeof window !== "undefined") {
       const ok = window.confirm("Remover este pedido?");
       if (!ok) return;
     }
 
-    // ✅ se estava baixado, devolve antes de remover
     if (p.estoqueBaixado) {
       ajustarEstoquePorPedido(p, "devolver");
     }
 
-    const next = pedidos.filter((x) => x.id !== id);
-    setPedidos(next);
-    saveJSON(PEDIDOS_KEY, next);
+    try {
+      await deletePedidoFromFirestore(id);
 
-    setProdutos(loadJSON<Produto[]>(PRODUTOS_KEY, []));
+      const next = pedidos.filter((x) => x.id !== id);
+      setPedidos(next);
 
-    toast("🗑️ Pedido removido!", 1200);
+      setProdutos(loadJSON<Produto[]>(PRODUTOS_KEY, []));
+
+      toast("🗑️ Pedido removido!", 1400);
+    } catch (err) {
+      console.error("Erro ao remover pedido do Firestore:", err);
+      const code = firebaseCode(err);
+      toast(
+        code
+          ? `⚠️ Firebase: ${code} (remover pedido)`
+          : "⚠️ Não consegui remover (Firebase). Veja o console (F12).",
+        3200
+      );
+    }
   }
 
   const pedidosFiltrados = useMemo(() => {
@@ -797,7 +972,8 @@ export default function PedidosPage() {
           <div className="kicker">Maison Noor</div>
           <h1 className="title">CRM • Pedidos</h1>
           <p className="sub">
-            Crie pedidos a partir de Leads e acompanhe status (integrado com Produtos/Estoque e Financeiro).
+            Crie pedidos a partir de Leads e acompanhe status (integrado com
+            Produtos/Estoque e Financeiro).
           </p>
         </div>
 
@@ -806,7 +982,9 @@ export default function PedidosPage() {
             <label>Status</label>
             <select
               value={statusFiltro}
-              onChange={(e) => setStatusFiltro(e.target.value as StatusPedido | "todos")}
+              onChange={(e) =>
+                setStatusFiltro(e.target.value as StatusPedido | "todos")
+              }
               className="selectSmall"
             >
               <option value="todos">Todos</option>
@@ -828,7 +1006,7 @@ export default function PedidosPage() {
             />
           </div>
 
-          <button className="btn" onClick={refresh} type="button">
+          <button className="btn" onClick={() => void refresh()} type="button">
             Atualizar
           </button>
           <button className="btnPrimary" onClick={startNewPedido} type="button">
@@ -841,8 +1019,8 @@ export default function PedidosPage() {
 
       {!produtosAtivos.length ? (
         <div className="warn">
-          ⚠️ Você ainda não tem produtos cadastrados. Cadastre em <strong>Produtos</strong> para puxar preço e baixar
-          estoque.
+          ⚠️ Você ainda não tem produtos cadastrados. Cadastre em{" "}
+          <strong>Produtos</strong> para puxar preço e baixar estoque.
           <button
             className="btnSmall"
             onClick={goProdutos}
@@ -879,20 +1057,23 @@ export default function PedidosPage() {
                 <th>Total</th>
                 <th>Status</th>
                 <th>Atualizado</th>
-                <th>Ações</th>
+                <th className="thActions">Ações</th>
               </tr>
             </thead>
 
             <tbody>
               {pedidosFiltrados.map((p) => {
                 const subtotal = (p.itens || []).reduce(
-                  (a, it) => a + (Number(it.preco) || 0) * (Number(it.qtd) || 0),
+                  (a, it) =>
+                    a + (Number(it.preco) || 0) * (Number(it.qtd) || 0),
                   0
                 );
                 const total = Math.max(
                   0,
                   subtotal - (Number(p.desconto) || 0) + (Number(p.frete) || 0)
                 );
+
+                const podeExcluir = canDeletePedido(p);
 
                 return (
                   <tr key={p.id}>
@@ -902,7 +1083,9 @@ export default function PedidosPage() {
                       <div className="name">{p.clienteNome}</div>
                       <div className="meta">
                         {p.origem ? origemLabel(p.origem) : "—"}{" "}
-                        {p.estoqueBaixado ? <span className="pillOk">estoque baixado</span> : null}
+                        {p.estoqueBaixado ? (
+                          <span className="pillOk">estoque baixado</span>
+                        ) : null}
                       </div>
                     </td>
 
@@ -918,7 +1101,9 @@ export default function PedidosPage() {
                           </span>
                         ))}
                         {(p.itens || []).length > 3 ? (
-                          <span className="more">+{(p.itens || []).length - 3}</span>
+                          <span className="more">
+                            +{(p.itens || []).length - 3}
+                          </span>
                         ) : null}
                       </div>
                     </td>
@@ -929,7 +1114,12 @@ export default function PedidosPage() {
                       <select
                         className="selectInline"
                         value={p.status}
-                        onChange={(e) => updatePedidoStatus(p.id, e.target.value as StatusPedido)}
+                        onChange={(e) =>
+                          void updatePedidoStatus(
+                            p.id,
+                            e.target.value as StatusPedido
+                          )
+                        }
                       >
                         {STATUS_PEDIDO_META.map((s) => (
                           <option key={s.v} value={s.v}>
@@ -940,10 +1130,12 @@ export default function PedidosPage() {
                     </td>
 
                     <td className="meta">
-                      {new Date(p.updatedAt || p.createdAt).toLocaleString("pt-BR")}
+                      {new Date(p.updatedAt || p.createdAt).toLocaleString(
+                        "pt-BR"
+                      )}
                     </td>
 
-                    <td>
+                    <td className="tdActions">
                       <div className="actions">
                         <button
                           className="btnSmall"
@@ -965,8 +1157,19 @@ export default function PedidosPage() {
 
                         <button
                           className="btnDanger"
-                          onClick={() => deletePedido(p.id)}
+                          onClick={() => void deletePedido(p.id)}
                           type="button"
+                          disabled={!podeExcluir}
+                          title={
+                            podeExcluir
+                              ? "Remover pedido"
+                              : "Só pode remover em Rascunho ou Aguardando"
+                          }
+                          style={
+                            !podeExcluir
+                              ? { opacity: 0.5, cursor: "not-allowed" }
+                              : undefined
+                          }
                         >
                           Remover
                         </button>
@@ -978,9 +1181,9 @@ export default function PedidosPage() {
 
               {!pedidosFiltrados.length ? (
                 <tr>
-                  {/* agora são 8 colunas */}
                   <td colSpan={8} className="empty">
-                    Nenhum pedido ainda. Clique em <strong>“+ Criar pedido”</strong>.
+                    Nenhum pedido ainda. Clique em{" "}
+                    <strong>“+ Criar pedido”</strong>.
                   </td>
                 </tr>
               ) : null}
@@ -1025,7 +1228,9 @@ export default function PedidosPage() {
                   <option value="">— Selecionar lead —</option>
                   {leads
                     .slice()
-                    .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
+                    .sort((a, b) =>
+                      (b.updatedAt || "").localeCompare(a.updatedAt || "")
+                    )
                     .slice(0, 80)
                     .map((l) => (
                       <option key={l.id} value={l.id}>
@@ -1073,7 +1278,9 @@ export default function PedidosPage() {
                     <select
                       className="select"
                       value={status}
-                      onChange={(e) => setStatus(e.target.value as StatusPedido)}
+                      onChange={(e) =>
+                        setStatus(e.target.value as StatusPedido)
+                      }
                     >
                       {STATUS_PEDIDO_META.map((s) => (
                         <option key={s.v} value={s.v}>
@@ -1095,7 +1302,6 @@ export default function PedidosPage() {
               <div className="box">
                 <div className="boxTitle">Itens do pedido</div>
 
-                {/* ✅ Picker de Produtos */}
                 <label className="lab">Adicionar a partir de Produtos</label>
                 <select
                   className="select"
@@ -1106,7 +1312,9 @@ export default function PedidosPage() {
                   {produtosAtivos.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nome}
-                      {typeof p.estoque === "number" ? ` • estoque ${p.estoque}` : ""}
+                      {typeof p.estoque === "number"
+                        ? ` • estoque ${p.estoque}`
+                        : ""}
                       {p.precoVenda ? ` • ${formatBRL(p.precoVenda)}` : ""}
                     </option>
                   ))}
@@ -1134,11 +1342,7 @@ export default function PedidosPage() {
                     value={itemPreco}
                     onChange={(e) => setItemPreco(Number(e.target.value))}
                   />
-                  <button
-                    className="btnSmall"
-                    onClick={addItem}
-                    type="button"
-                  >
+                  <button className="btnSmall" onClick={addItem} type="button">
                     Adicionar
                   </button>
                 </div>
@@ -1150,7 +1354,9 @@ export default function PedidosPage() {
                         <input
                           className="input"
                           value={it.nome}
-                          onChange={(e) => updateItem(idx, { nome: e.target.value })}
+                          onChange={(e) =>
+                            updateItem(idx, { nome: e.target.value })
+                          }
                         />
                         <input
                           className="input"
@@ -1182,7 +1388,8 @@ export default function PedidosPage() {
                     ))
                   ) : (
                     <div className="emptyBox">
-                      Sem itens ainda. Se escolher um Lead, os perfumes entram aqui.
+                      Sem itens ainda. Se escolher um Lead, os perfumes entram
+                      aqui.
                     </div>
                   )}
                 </div>
@@ -1233,7 +1440,7 @@ export default function PedidosPage() {
                   </button>
                   <button
                     className="btnPrimary"
-                    onClick={savePedido}
+                    onClick={() => void savePedido()}
                     type="button"
                   >
                     Salvar pedido
@@ -1347,6 +1554,10 @@ export default function PedidosPage() {
           font-weight: 900;
           color: #f2f2f2;
           white-space: nowrap;
+
+          /* ✅ FIX: não deixa o botão “amassar” */
+          min-width: 120px;
+          flex: 0 0 auto;
         }
         .btnDanger {
           padding: 10px 12px;
@@ -1357,16 +1568,26 @@ export default function PedidosPage() {
           font-weight: 900;
           color: #ffdada;
           white-space: nowrap;
+
+          /* ✅ FIX: não deixa o botão “amassar” */
+          min-width: 120px;
+          flex: 0 0 auto;
         }
 
         .toast {
-          margin-top: 12px;
+          position: fixed;
+          top: 16px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 9999;
+
+          margin-top: 0;
           padding: 12px 14px;
           border-radius: 14px;
           border: 1px solid rgba(200, 162, 106, 0.22);
-          background: rgba(200, 162, 106, 0.08);
+          background: rgba(200, 162, 106, 0.1);
           font-weight: 800;
-          max-width: 980px;
+          max-width: min(980px, 92vw);
         }
 
         .warn {
@@ -1412,7 +1633,9 @@ export default function PedidosPage() {
             rgba(255, 255, 255, 0.01)
           );
           padding: 14px;
-          overflow-x: hidden;
+
+          /* ✅ FIX PRINCIPAL: não cortar as colunas do fim */
+          overflow: visible;
         }
         .cardTitle {
           font-size: 12px;
@@ -1433,7 +1656,9 @@ export default function PedidosPage() {
         .table {
           width: 100%;
           border-collapse: collapse;
-          min-width: 880px;
+
+          /* ✅ garante espaço pras colunas Pedido/Atualizado/Ações */
+          min-width: 1200px; /* antes 1120 */
         }
         th,
         td {
@@ -1449,6 +1674,15 @@ export default function PedidosPage() {
           text-align: left;
           white-space: nowrap;
         }
+
+        /* ✅ ALTERAÇÃO: alinha "Ações" com os botões */
+        .thActions,
+        .tdActions {
+          min-width: 320px; /* antes 360 */
+          width: 320px;
+          text-align: center; /* 👈 header e células alinhados */
+        }
+
         .name {
           font-weight: 900;
         }
@@ -1487,11 +1721,16 @@ export default function PedidosPage() {
           color: #f2f2f2;
           outline: none;
         }
+
+        /* ✅ ALTERAÇÃO: centraliza os botões abaixo do título */
         .actions {
           display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
+          gap: 10px;
+          flex-wrap: nowrap; /* antes wrap */
+          justify-content: center; /* antes flex-end */
+          align-items: center;
         }
+
         .empty {
           padding: 16px;
           opacity: 0.7;
@@ -1522,8 +1761,8 @@ export default function PedidosPage() {
         }
         .modal {
           width: min(1100px, 98vw);
-          max-height: 90vh; /* ✅ não deixa passar da tela */
-          overflow-y: auto; /* ✅ scroll interno se passar */
+          max-height: 90vh;
+          overflow-y: auto;
           border-radius: 18px;
           border: 1px solid rgba(200, 162, 106, 0.22);
           background: rgba(10, 10, 14, 0.92);
