@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
@@ -10,6 +10,7 @@ type NavLink = {
   href: string;
   label: string;
   icon: React.ReactNode;
+  disabled?: boolean;
 };
 
 function IconDashboard() {
@@ -73,30 +74,48 @@ function IconProdutos() {
   );
 }
 
-const links: NavLink[] = [
-  { href: "/crm/dashboard", label: "Dashboard", icon: <IconDashboard /> },
-  { href: "/crm/leads", label: "Leads", icon: <IconLeads /> },
-  { href: "/crm/kanban", label: "Kanban", icon: <IconKanban /> },
-  { href: "/crm/pedidos", label: "Pedidos", icon: <IconPedidos /> },
-  { href: "/crm/financeiro", label: "Financeiro", icon: <IconFinanceiro /> },
-  { href: "/crm/produtos", label: "Produtos", icon: <IconProdutos /> },
-];
-
 export default function Nav() {
   const pathname = usePathname();
   const router = useRouter();
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  // ✅ Opção A: Leads desativado (não aparece no menu)
+  const links: NavLink[] = useMemo(
+    () => [
+      // Mantém dashboard funcionando tanto em /crm quanto /crm/dashboard
+      { href: "/crm", label: "Dashboard", icon: <IconDashboard /> },
+
+      // { href: "/crm/leads", label: "Leads", icon: <IconLeads /> }, // desativado
+
+      { href: "/crm/kanban", label: "Kanban", icon: <IconKanban /> },
+      { href: "/crm/pedidos", label: "Pedidos", icon: <IconPedidos /> },
+      { href: "/crm/financeiro", label: "Financeiro", icon: <IconFinanceiro /> },
+      { href: "/crm/produtos", label: "Produtos", icon: <IconProdutos /> },
+    ],
+    []
+  );
 
   function isActive(href: string) {
     if (!pathname) return false;
-    if (href === "/crm/dashboard") return pathname === "/crm/dashboard";
+
+    // Dashboard: considera /crm e /crm/dashboard como ativo
+    if (href === "/crm") return pathname === "/crm" || pathname === "/crm/";
+    if (href === "/crm/dashboard")
+      return pathname === "/crm/dashboard" || pathname.startsWith("/crm/dashboard/");
+
     return pathname.startsWith(href);
   }
 
   async function handleLogout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
     try {
       await signOut(auth);
+    } catch (e) {
+      console.error("Erro ao sair:", e);
     } finally {
       router.replace("/login");
+      setLoggingOut(false);
     }
   }
 
@@ -108,6 +127,7 @@ export default function Nav() {
         <div className="crmNavList">
           {links.map((l) => {
             const active = isActive(l.href);
+
             return (
               <Link
                 key={l.href}
@@ -115,7 +135,6 @@ export default function Nav() {
                 className={`crmNavItem ${active ? "crmNavItemActive" : ""}`}
                 aria-current={active ? "page" : undefined}
               >
-                {/* linha em grid: ícone + label */}
                 <div className="crmNavItemInner">
                   <span className="crmNavIcon" aria-hidden>
                     {l.icon}
@@ -131,8 +150,9 @@ export default function Nav() {
           type="button"
           className="crmNavLogoutButton"
           onClick={handleLogout}
+          disabled={loggingOut}
         >
-          Sair
+          {loggingOut ? "Saindo..." : "Sair"}
         </button>
       </div>
 
@@ -169,10 +189,7 @@ export default function Nav() {
           border: 1px solid rgba(255, 255, 255, 0.06);
           background: rgba(0, 0, 0, 0.16);
           padding: 6px 10px;
-          transition:
-            transform 0.08s ease,
-            border 0.12s ease,
-            background 0.12s ease,
+          transition: transform 0.08s ease, border 0.12s ease, background 0.12s ease,
             box-shadow 0.12s ease;
         }
 
@@ -246,12 +263,8 @@ export default function Nav() {
           text-transform: uppercase;
           cursor: pointer;
           text-align: center;
-          transition:
-            background 0.16s ease,
-            border-color 0.16s ease,
-            transform 0.1s ease,
-            box-shadow 0.16s ease,
-            opacity 0.12s ease;
+          transition: background 0.16s ease, border-color 0.16s ease, transform 0.1s ease,
+            box-shadow 0.16s ease, opacity 0.12s ease;
         }
 
         .crmNavLogoutButton:hover {
