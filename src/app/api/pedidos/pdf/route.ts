@@ -33,7 +33,8 @@ function brl(n: number) {
   });
 }
 
-function line(doc: PDFKit.PDFDocument, w: number) {
+// ✅ pdfkit não possui typings reais → usar any (isso corrige o build do Next)
+function line(doc: any, w: number) {
   doc
     .moveTo(doc.page.margins.left, doc.y)
     .lineTo(doc.page.margins.left + w, doc.y)
@@ -142,7 +143,7 @@ export async function GET(req: Request) {
 
     const chunks: Buffer[] = [];
     const done = new Promise<Buffer>((resolve, reject) => {
-      docPdf.on("data", (c) => chunks.push(c));
+      docPdf.on("data", (c: Buffer) => chunks.push(c));
       docPdf.on("end", () => resolve(Buffer.concat(chunks)));
       docPdf.on("error", reject);
     });
@@ -216,9 +217,7 @@ export async function GET(req: Request) {
         .text(it.nome || "Item", { width: colNome });
 
       // Linha “qtd x unit = total” alinhada
-      docPdf
-        .font(hasRegular ? "Inter" : "Helvetica")
-        .fontSize(9);
+      docPdf.font(hasRegular ? "Inter" : "Helvetica").fontSize(9);
 
       const y = docPdf.y;
 
@@ -292,7 +291,9 @@ export async function GET(req: Request) {
     return new NextResponse(pdfBuffer, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename=pedido-${pedido.numero ?? pedidoId}.pdf`,
+        "Content-Disposition": `inline; filename=pedido-${
+          pedido.numero ?? pedidoId
+        }.pdf`,
         "Cache-Control": "no-store",
       },
     });
