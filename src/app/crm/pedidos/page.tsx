@@ -217,6 +217,13 @@ const PEDIDOS_LISTA_COL = collection(PEDIDOS_DOC, "lista");
 const PEDIDOS_COUNTER_REF = doc(PEDIDOS_DOC, "counters", "pedidos_seq");
 
 /* ======================================================
+   ✅ FIRESTORE (Financeiro)
+   - financeiro/default/lista/{lancId}
+====================================================== */
+const FIN_DOC = doc(db, "financeiro", "default");
+const FIN_LISTA_COL = collection(FIN_DOC, "lista");
+
+/* ======================================================
    ✅ FIX: Firestore NÃO aceita undefined
    - Remove undefined de objetos/arrays antes de setDoc/updateDoc
 ====================================================== */
@@ -365,6 +372,36 @@ function norm(s: string): string {
     .replace(/\s+/g, " ");
 }
 
+// ✅ NOVO: tenta preencher produtoId nos itens quando veio só com nome
+function findProdutoByNome(produtos: Produto[], nomeItem: string): Produto | null {
+  const alvo = norm(nomeItem);
+  if (!alvo) return null;
+
+  const base = (produtos || []).filter((p) => p.ativo !== false);
+
+  const exato = base.find((p) => norm(p.nome) === alvo);
+  if (exato) return exato;
+
+  const parcial = base.find(
+    (p) => norm(p.nome).includes(alvo) || alvo.includes(norm(p.nome))
+  );
+  return parcial || null;
+}
+
+function enrichItensWithProdutoId(
+  itensIn: PedidoItem[],
+  produtosBase: Produto[]
+): PedidoItem[] {
+  const base = (produtosBase || []).filter((p) => p.ativo !== false);
+
+  return (itensIn || []).map((it) => {
+    if (it.produtoId) return it;
+    const found = findProdutoByNome(base, it.nome);
+    if (!found) return it;
+    return { ...it, produtoId: found.id, nome: found.nome || it.nome };
+  });
+}
+
 // helper para mês/competência (AAAA-MM)
 function toCompetencia(iso: string): string {
   const v = String(iso || "");
@@ -453,6 +490,43 @@ function registrarReceitaDoPedido(p: PedidoParaFinanceiro): void {
     saveJSON(FINANCEIRO_KEY, novaLista);
   } catch (err) {
     console.error("Erro ao registrar receita do pedido:", err);
+  }
+}
+
+/** ✅ NOVO: registra também no Firestore (para aparecer no CRM online e/ou outro device) */
+async function registrarReceitaDoPedidoFS(
+  p: PedidoParaFinanceiro,
+  numero?: number
+): Promise<void> {
+  try {
+    const agora = new Date().toISOString();
+    const data = p.data || agora;
+
+    // id fixo para não duplicar: 1 doc por pedido
+    const ref = doc(FIN_LISTA_COL, `pedido_${p.id}`);
+
+    const lancamento: FinanceiroEntry = {
+      id: `pedido_${p.id}`,
+      data,
+      competencia: toCompetencia(data),
+      tipo: "receita",
+      status: "pago",
+      descricao:
+        p.descricao || descricaoPedidoFinanceiro(p.id, p.cliente, numero),
+      categoria: "Vendas",
+      forma: p.meioPagamento || "Pix",
+      valor: Number(p.valor) || 0,
+      observacoes: p.cliente ? `Pedido de ${p.cliente}` : undefined,
+      origemPedidoId: p.id,
+      clienteNome: p.cliente,
+      createdAt: agora,
+      updatedAt: agora,
+    };
+
+    const safe = cleanUndefinedDeep(lancamento);
+    await setDoc(ref, safe as any, { merge: true });
+  } catch (err) {
+    console.error("Erro ao registrar receita do pedido no Firestore:", err);
   }
 }
 
@@ -553,6 +627,7 @@ export default function PedidosPage() {
   useEffect(() => {
     if (!pedidos.length) return;
 
+    // ✅ quando carrega pedidos, garante que "pago" tenha receita registrada
     pedidos.forEach((p) => {
       if (p.status !== "pago") return;
 
@@ -573,6 +648,18 @@ export default function PedidosPage() {
           cliente: p.clienteNome,
           data: p.updatedAt || p.createdAt,
         });
+
+        // ✅ NOVO: Firestore também
+        void registrarReceitaDoPedidoFS(
+          {
+            id: p.id,
+            descricao: descricaoPedidoFinanceiro(p.id, p.clienteNome, p.numero),
+            valor: total,
+            cliente: p.clienteNome,
+            data: p.updatedAt || p.createdAt,
+          },
+          p.numero
+        );
       }
     });
   }, [pedidos]);
@@ -759,12 +846,18 @@ export default function PedidosPage() {
       }
 
       const now = new Date().toISOString();
-      const itensNormalizados = itens.map((x) => ({
+
+      // ✅ normaliza e tenta completar produtoId por nome (para baixar estoque e integrar certo)
+      const itensNormalizadosBase = itens.map((x) => ({
         produtoId: x.produtoId,
         nome: String(x.nome).trim(),
         qtd: Math.max(1, Number(x.qtd) || 1),
         preco: Math.max(0, Number(x.preco) || 0),
       }));
+      const itensNormalizados = enrichItensWithProdutoId(
+        itensNormalizadosBase,
+        produtos
+      );
 
       const descontoNum = Math.max(0, Number(desconto) || 0);
       const freteNum = Math.max(0, Number(frete) || 0);
@@ -801,13 +894,16 @@ export default function PedidosPage() {
       }
 
       if (p.status === "pago" && total > 0) {
-        registrarReceitaDoPedido({
+        const payload = {
           id: p.id,
           descricao: descricaoPedidoFinanceiro(p.id, p.clienteNome, p.numero),
           valor: total,
           cliente: p.clienteNome,
           data: p.createdAt,
-        });
+        };
+
+        registrarReceitaDoPedido(payload);
+        await registrarReceitaDoPedidoFS(payload, p.numero);
       }
 
       await savePedidoToFirestore(p);
@@ -840,7 +936,10 @@ export default function PedidosPage() {
       const next = pedidos.map((p) => {
         if (p.id !== id) return p;
 
-        const updated: Pedido = { ...p, status: st, updatedAt };
+        // ✅ NOVO: ao mudar status, tenta enriquecer itens com produtoId (garante baixa/devolução)
+        const itensEnriquecidos = enrichItensWithProdutoId(p.itens || [], produtos);
+
+        const updated: Pedido = { ...p, itens: itensEnriquecidos, status: st, updatedAt };
 
         const baixado = Boolean(updated.estoqueBaixado);
 
@@ -869,7 +968,7 @@ export default function PedidosPage() {
           );
 
           if (total > 0) {
-            registrarReceitaDoPedido({
+            const payload = {
               id: updated.id,
               descricao: descricaoPedidoFinanceiro(
                 updated.id,
@@ -879,7 +978,10 @@ export default function PedidosPage() {
               valor: total,
               cliente: updated.clienteNome,
               data: updated.updatedAt,
-            });
+            };
+
+            registrarReceitaDoPedido(payload);
+            void registrarReceitaDoPedidoFS(payload, updated.numero);
           }
         }
 
@@ -893,6 +995,7 @@ export default function PedidosPage() {
         status: st,
         updatedAt,
         estoqueBaixado: updatedPedido?.estoqueBaixado,
+        itens: updatedPedido?.itens, // ✅ garante que produtoId enriquecido vai pro Firestore
       });
 
       setLeads(loadJSON<Lead[]>(LEADS_KEY, []));
@@ -1045,6 +1148,10 @@ export default function PedidosPage() {
 
   return (
     <main className="page">
+      {/* ===========================
+          ✅ SEU JSX INTACTO
+          (nada estrutural foi mexido)
+      ============================ */}
       <header className="head">
         <div>
           <div className="kicker">Maison Noor</div>
@@ -1658,6 +1765,7 @@ export default function PedidosPage() {
       ) : null}
 
       <style jsx>{`
+        /* SEU CSS INTACTO (não mexi) */
         .page {
           padding: 24px;
         }

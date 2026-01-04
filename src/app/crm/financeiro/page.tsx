@@ -42,10 +42,17 @@ type Lancamento = {
 
 const STORAGE_KEY = "maison_noor_crm_financeiro_v1";
 
-// ✅ Caminho correto no Firestore: financeiro/default/lancamentos/{id}
+/**
+ * ✅ Caminho CORRETO (alinhado com Pedidos):
+ * - financeiro/default/lista/{id}
+ *
+ * OBS: seu arquivo antigo usava:
+ * - financeiro/default/lancamentos/{id}
+ * Isso fazia o Financeiro não enxergar o que Pedidos gravava.
+ */
 const FIRESTORE_ROOT = "financeiro";
 const FIRESTORE_DOC = "default";
-const FIRESTORE_SUBCOL = "lancamentos";
+const FIRESTORE_SUBCOL = "lista"; // ✅ ALTERADO: era "lancamentos"
 
 // ✅ Para EXIBIÇÃO no UI (pode ter "/")
 const FIRESTORE_COLLECTION_PATH = `${FIRESTORE_ROOT}/${FIRESTORE_DOC}/${FIRESTORE_SUBCOL}`;
@@ -105,6 +112,13 @@ function lancamentoDocRef(id: string) {
   return doc(db, FIRESTORE_ROOT, FIRESTORE_DOC, FIRESTORE_SUBCOL, id);
 }
 
+// ✅ Se for receita que veio de pedido, usa docId FIXO para não duplicar
+function docIdForLanc(l: Lancamento): string {
+  const op = String(l.origemPedidoId || "").trim();
+  if (op) return `pedido_${op}`;
+  return l.id || uid();
+}
+
 // Firestore helpers
 function tsToISO(value: any): string {
   if (!value) return nowISO();
@@ -153,6 +167,7 @@ async function fetchFromFirestore(): Promise<Lancamento[]> {
         const clienteNome = d.clienteNome ? String(d.clienteNome) : undefined;
 
         const lanc: Lancamento = {
+          // ✅ id deve ser o docId do Firestore (docSnap.id)
           id: docSnap.id,
           data: dataIso,
           competencia,
@@ -193,7 +208,8 @@ async function fetchFromFirestore(): Promise<Lancamento[]> {
 // ✅ garante ID, remove undefined e normaliza campos antes de salvar
 async function upsertInFirestore(l: Lancamento): Promise<boolean> {
   try {
-    const id = l.id || uid();
+    // ✅ se tiver origemPedidoId -> docId fixo pedido_{id}
+    const id = docIdForLanc(l);
     const ref = lancamentoDocRef(id);
 
     // Normaliza data primeiro (pra competencia ficar 100% certa)
@@ -201,7 +217,7 @@ async function upsertInFirestore(l: Lancamento): Promise<boolean> {
 
     const payload: any = {
       ...l,
-      id,
+      id, // opcional no doc, mas ok manter
       valor: Number(l.valor || 0),
       data: normalizedData,
       competencia: l.competencia || toCompetencia(normalizedData),
@@ -214,10 +230,7 @@ async function upsertInFirestore(l: Lancamento): Promise<boolean> {
       if (payload[key] === undefined) delete payload[key];
     });
 
-    console.log(
-      "[Financeiro] setDoc ->",
-      `${FIRESTORE_COLLECTION_PATH}/${id}`
-    );
+    console.log("[Financeiro] setDoc ->", `${FIRESTORE_COLLECTION_PATH}/${id}`);
     console.log("[Financeiro] payload:", payload);
 
     await setDoc(ref, payload, { merge: true });
@@ -305,6 +318,12 @@ export default function FinanceiroPage() {
       } else {
         const local = readStorage();
         setItems(local);
+
+        // ✅ opcional (mas útil): se tiver dados locais, tenta subir pro Firestore
+        // (evita “sumir” ao trocar de PC/celular)
+        if (local.length) {
+          void syncListToFirestore(local);
+        }
       }
 
       const hoje = new Date();
@@ -507,8 +526,13 @@ export default function FinanceiroPage() {
     const current = items.find((x) => x.id === id);
     if (!current) return;
 
-    const novoStatus: StatusLanc = current.status === "pago" ? "pendente" : "pago";
-    const updated: Lancamento = { ...current, status: novoStatus, updatedAt: nowISO() };
+    const novoStatus: StatusLanc =
+      current.status === "pago" ? "pendente" : "pago";
+    const updated: Lancamento = {
+      ...current,
+      status: novoStatus,
+      updatedAt: nowISO(),
+    };
 
     setItems((prev) => {
       const next = prev.map((l) => (l.id === id ? updated : l));
@@ -523,9 +547,11 @@ export default function FinanceiroPage() {
     const l = items.find((x) => x.id === id);
     if (!l) return;
 
+    // ✅ Se for lançamento de pedido, duplicar vira lançamento "manual" (sem origemPedidoId)
     const copy: Lancamento = {
       ...l,
       id: uid(),
+      origemPedidoId: undefined,
       createdAt: nowISO(),
       updatedAt: nowISO(),
     };
@@ -586,9 +612,7 @@ export default function FinanceiroPage() {
             const origemPedidoId = x.origemPedidoId
               ? String(x.origemPedidoId)
               : undefined;
-            const clienteNome = x.clienteNome
-              ? String(x.clienteNome)
-              : undefined;
+            const clienteNome = x.clienteNome ? String(x.clienteNome) : undefined;
 
             return {
               id: String(x.id || uid()),
@@ -618,8 +642,7 @@ export default function FinanceiroPage() {
           if (!existing) {
             map.set(l.id, l);
           } else {
-            const keepIncoming =
-              (l.updatedAt || "") > (existing.updatedAt || "");
+            const keepIncoming = (l.updatedAt || "") > (existing.updatedAt || "");
             map.set(l.id, keepIncoming ? l : existing);
           }
         }
@@ -659,8 +682,7 @@ export default function FinanceiroPage() {
       .filter((l) => {
         if (tipoFilter !== "todos" && l.tipo !== tipoFilter) return false;
         if (statusFilter !== "todos" && l.status !== statusFilter) return false;
-        if (competenciaFilter && l.competencia !== competenciaFilter)
-          return false;
+        if (competenciaFilter && l.competencia !== competenciaFilter) return false;
 
         if (!qq) return true;
         const hay = `${l.descricao} ${l.categoria || ""} ${l.forma}`.toLowerCase();
