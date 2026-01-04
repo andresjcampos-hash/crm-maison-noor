@@ -1,18 +1,41 @@
+# ===============================
 # Build do Next.js (não versionar)
+# ===============================
 .next/
 out/
 dist/
 
+# ===============================
 # Dependências
+# ===============================
 node_modules/
 
+# ===============================
 # Arquivos de ambiente (sensíveis)
+# ===============================
 .env
-.env.local
-.env.development
-.env.production
+.env.*
+!.env.example
 
+# ===============================
+# Vercel
+# ===============================
+.vercel/
+
+# ===============================
 # Sistema / Editor
+# ===============================
 .DS_Store
 .vscode/
-.vercel
+
+# ===============================
+# Secrets / Chaves (NUNCA subir)
+# ===============================
+secrets/
+secrets/**
+/secrets/firebase-admin.json
+
+# Firebase Admin (caso alguém crie fora de secrets)
+**/firebase-admin.json
+**/serviceAccountKey.json
+**/*adminsdk*.json

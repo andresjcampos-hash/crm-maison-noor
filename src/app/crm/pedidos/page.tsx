@@ -16,7 +16,13 @@ import {
   updateDoc,
 } from "firebase/firestore";
 
-type Origem = "instagram" | "whatsapp" | "indicacao" | "site" | "outros";
+type Origem =
+  | "instagram"
+  | "facebook"
+  | "whatsapp"
+  | "indicacao"
+  | "site"
+  | "outros";
 type StatusLead =
   | "novo"
   | "chamou_no_whatsapp"
@@ -136,6 +142,7 @@ const STATUS_PEDIDO_META: { v: StatusPedido; label: string }[] = [
 
 const ORIGEM_LABEL: Record<Origem, string> = {
   instagram: "Instagram",
+  facebook: "Facebook", // ✅ ADICIONADO
   whatsapp: "WhatsApp",
   indicacao: "Indicação",
   site: "Site",
@@ -145,6 +152,7 @@ const ORIGEM_LABEL: Record<Origem, string> = {
 // type-guard origem
 const ORIGENS_VALIDAS = [
   "instagram",
+  "facebook", // ✅ ADICIONADO
   "whatsapp",
   "indicacao",
   "site",
@@ -496,6 +504,14 @@ export default function PedidosPage() {
   );
   const [q, setQ] = useState("");
 
+  // ✅ NOVO: edição de pedido (para alterar tipo de contato/origem, nome, telefone, observações)
+  const [editOpen, setEditOpen] = useState(false);
+  const [editId, setEditId] = useState<string>("");
+  const [editClienteNome, setEditClienteNome] = useState("");
+  const [editTelefone, setEditTelefone] = useState("");
+  const [editOrigem, setEditOrigem] = useState<Origem>("outros");
+  const [editObservacoes, setEditObservacoes] = useState("");
+
   function toast(t: string, ms = 1600): void {
     setMsg(t);
     if (typeof window !== "undefined") {
@@ -605,6 +621,13 @@ export default function PedidosPage() {
   function goProdutos(): void {
     if (typeof window === "undefined") return;
     window.location.href = `/crm/produtos`;
+  }
+
+  // ✅ NOVO: abre o PDF do pedido (rota /api/pedidos/pdf)
+  function openPedidoPDF(p: Pedido): void {
+    if (typeof window === "undefined") return;
+    const url = `/api/pedidos/pdf?id=${encodeURIComponent(p.id)}`;
+    window.open(url, "_blank");
   }
 
   function startNewPedido(): void {
@@ -931,6 +954,61 @@ export default function PedidosPage() {
     }
   }
 
+  // ✅ NOVO: abrir edição do pedido (pra alterar origem/tipo de contato)
+  function openEditPedido(p: Pedido): void {
+    setEditId(p.id);
+    setEditClienteNome(p.clienteNome || "");
+    setEditTelefone(p.telefone || "");
+    setEditOrigem((p.origem || "outros") as Origem);
+    setEditObservacoes(p.observacoes || "");
+    setEditOpen(true);
+  }
+
+  function validateEditPedido(): string {
+    if (!editClienteNome.trim()) return "Informe o nome do cliente.";
+    if (onlyDigits(editTelefone).length < 10)
+      return "Informe um telefone válido (com DDD).";
+    return "";
+  }
+
+  async function saveEditPedido(): Promise<void> {
+    try {
+      const err = validateEditPedido();
+      if (err) {
+        toast(`⚠️ ${err}`, 2400);
+        return;
+      }
+
+      const updatedAt = new Date().toISOString();
+
+      const patch: Partial<Pedido> = {
+        clienteNome: editClienteNome.trim(),
+        telefone: editTelefone.trim(),
+        origem: editOrigem,
+        observacoes: editObservacoes.trim() || undefined,
+        updatedAt,
+      };
+
+      await updatePedidoInFirestore(editId, patch);
+
+      setPedidos((prev) =>
+        prev.map((p) => (p.id === editId ? { ...p, ...patch } : p))
+      );
+
+      toast("✅ Pedido atualizado!", 1400);
+      setEditOpen(false);
+    } catch (err) {
+      console.error("Erro ao editar pedido:", err);
+      const code = firebaseCode(err);
+      toast(
+        code
+          ? `⚠️ Firebase: ${code} (editar pedido)`
+          : "⚠️ Não consegui editar o pedido (Firebase). Veja o console (F12).",
+        3200
+      );
+    }
+  }
+
   const pedidosFiltrados = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return pedidos.filter((p) => {
@@ -1145,6 +1223,26 @@ export default function PedidosPage() {
                           WhatsApp
                         </button>
 
+                        {/* ✅ NOVO BOTÃO EDITAR (não remove nada) */}
+                        <button
+                          className="btnSmall"
+                          onClick={() => openEditPedido(p)}
+                          type="button"
+                          title="Editar contato/origem do pedido"
+                        >
+                          Editar
+                        </button>
+
+                        {/* ✅ BOTÃO PDF */}
+                        <button
+                          className="btnSmall"
+                          onClick={() => openPedidoPDF(p)}
+                          type="button"
+                          title="Abrir PDF do pedido"
+                        >
+                          PDF
+                        </button>
+
                         {p.leadId ? (
                           <button
                             className="btnSmall"
@@ -1192,7 +1290,113 @@ export default function PedidosPage() {
         </div>
       </section>
 
-      {/* MODAL */}
+      {/* ✅ MODAL EDITAR PEDIDO (novo, sem mexer no modal de criação) */}
+      {editOpen ? (
+        <div className="modalOverlay" role="dialog" aria-modal="true">
+          <div className="modal">
+            <div className="modalHead">
+              <div>
+                <div className="kicker">Maison Noor</div>
+                <div className="modalTitle">Editar pedido</div>
+                <div className="modalSub">
+                  Altere o tipo de contato (origem), nome/telefone e observações.
+                </div>
+              </div>
+
+              <button
+                className="x"
+                onClick={() => setEditOpen(false)}
+                type="button"
+                aria-label="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="modalGrid">
+              <div className="box">
+                <div className="boxTitle">Dados do cliente</div>
+
+                <div className="row2">
+                  <div>
+                    <label className="lab">Nome</label>
+                    <input
+                      className="input"
+                      value={editClienteNome}
+                      onChange={(e) => setEditClienteNome(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="lab">Telefone</label>
+                    <input
+                      className="input"
+                      value={editTelefone}
+                      onChange={(e) => setEditTelefone(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="row2">
+                  <div>
+                    <label className="lab">Origem (tipo de contato)</label>
+                    <select
+                      className="select"
+                      value={editOrigem}
+                      onChange={(e) => setEditOrigem(e.target.value as Origem)}
+                    >
+                      <option value="instagram">Instagram</option>
+                      <option value="facebook">Facebook</option>
+                      <option value="whatsapp">WhatsApp</option>
+                      <option value="indicacao">Indicação</option>
+                      <option value="site">Site</option>
+                      <option value="outros">Outros</option>
+                    </select>
+                  </div>
+                  <div />
+                </div>
+
+                <label className="lab">Observações</label>
+                <textarea
+                  className="textarea"
+                  value={editObservacoes}
+                  onChange={(e) => setEditObservacoes(e.target.value)}
+                />
+
+                <div className="modalActions">
+                  <button
+                    className="btn"
+                    onClick={() => setEditOpen(false)}
+                    type="button"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    className="btnPrimary"
+                    onClick={() => void saveEditPedido()}
+                    type="button"
+                  >
+                    Salvar alterações
+                  </button>
+                </div>
+              </div>
+
+              <div className="box">
+                <div className="boxTitle">Dica rápida</div>
+                <div className="meta">
+                  • Esse editar foi feito pra resolver seu caso:{" "}
+                  <strong>mudar o tipo de contato</strong> sem precisar apagar o
+                  pedido.
+                  <br />
+                  • Itens/status continuam do jeito que você já usa (status tem
+                  o select na tabela).
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* MODAL (criar pedido) */}
       {open ? (
         <div className="modalOverlay" role="dialog" aria-modal="true">
           <div className="modal">
@@ -1267,6 +1471,7 @@ export default function PedidosPage() {
                       onChange={(e) => setOrigem(e.target.value as Origem)}
                     >
                       <option value="instagram">Instagram</option>
+                      <option value="facebook">Facebook</option>
                       <option value="whatsapp">WhatsApp</option>
                       <option value="indicacao">Indicação</option>
                       <option value="site">Site</option>
@@ -1545,6 +1750,8 @@ export default function PedidosPage() {
           font-weight: 900;
           color: #f2f2f2;
         }
+
+        /* ✅ FIX: botões não “achatam” e mantêm altura */
         .btnSmall {
           padding: 10px 12px;
           border-radius: 12px;
@@ -1555,8 +1762,11 @@ export default function PedidosPage() {
           color: #f2f2f2;
           white-space: nowrap;
 
-          /* ✅ FIX: não deixa o botão “amassar” */
           min-width: 120px;
+          height: 40px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
           flex: 0 0 auto;
         }
         .btnDanger {
@@ -1569,8 +1779,11 @@ export default function PedidosPage() {
           color: #ffdada;
           white-space: nowrap;
 
-          /* ✅ FIX: não deixa o botão “amassar” */
           min-width: 120px;
+          height: 40px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
           flex: 0 0 auto;
         }
 
@@ -1634,7 +1847,6 @@ export default function PedidosPage() {
           );
           padding: 14px;
 
-          /* ✅ FIX PRINCIPAL: não cortar as colunas do fim */
           overflow: visible;
         }
         .cardTitle {
@@ -1653,13 +1865,14 @@ export default function PedidosPage() {
           border: 1px solid rgba(255, 255, 255, 0.08);
           background: rgba(0, 0, 0, 0.14);
         }
+
+        /* ✅ FIX: largura mínima maior pra não “sumir” WhatsApp/Remover */
         .table {
           width: 100%;
           border-collapse: collapse;
-
-          /* ✅ garante espaço pras colunas Pedido/Atualizado/Ações */
-          min-width: 1200px; /* antes 1120 */
+          min-width: 1400px;
         }
+
         th,
         td {
           padding: 12px;
@@ -1675,12 +1888,12 @@ export default function PedidosPage() {
           white-space: nowrap;
         }
 
-        /* ✅ ALTERAÇÃO: alinha "Ações" com os botões */
+        /* ✅ FIX PRINCIPAL: coluna de Ações com espaço real pros 4/5 botões */
         .thActions,
         .tdActions {
-          min-width: 320px; /* antes 360 */
-          width: 320px;
-          text-align: center; /* 👈 header e células alinhados */
+          min-width: 520px;
+          width: 520px;
+          text-align: left;
         }
 
         .name {
@@ -1722,12 +1935,12 @@ export default function PedidosPage() {
           outline: none;
         }
 
-        /* ✅ ALTERAÇÃO: centraliza os botões abaixo do título */
+        /* ✅ FIX: não “espreme” e não manda botão pra fora */
         .actions {
           display: flex;
           gap: 10px;
-          flex-wrap: nowrap; /* antes wrap */
-          justify-content: center; /* antes flex-end */
+          flex-wrap: nowrap;
+          justify-content: flex-start;
           align-items: center;
         }
 
