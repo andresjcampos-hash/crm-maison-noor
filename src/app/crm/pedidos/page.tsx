@@ -61,6 +61,21 @@ type PedidoItem = {
   preco: number; // preço unitário
 };
 
+/** ✅ OPÇÃO 2: Pagamento dividido */
+type PedidoPagamentoForma =
+  | "dinheiro"
+  | "pix"
+  | "credito"
+  | "debito"
+  | "boleto"
+  | "transferencia"
+  | "outros";
+
+type PedidoPagamento = {
+  forma: PedidoPagamentoForma;
+  valor: number;
+};
+
 type Pedido = {
   id: string;
   /** ✅ Número sequencial (0001, 0002, ...) */
@@ -79,6 +94,9 @@ type Pedido = {
 
   // ✅ Controle de baixa/devolução de estoque
   estoqueBaixado?: boolean;
+
+  // ✅ OPÇÃO 2: pagamentos (pix + dinheiro etc.)
+  pagamentos?: PedidoPagamento[];
 };
 
 type ProdutoCategoria = "masculino" | "feminino" | "unissex";
@@ -101,17 +119,8 @@ type Produto = {
 const LEADS_KEY = "maison_noor_crm_leads_v1";
 const PRODUTOS_KEY = "maison_noor_crm_produtos_v1";
 
-// ✅ Financeiro (receitas vindas de pedidos)
+// ✅ Financeiro (receitas vindas de pedidos) — mantém também o localStorage
 const FINANCEIRO_KEY = "maison_noor_crm_financeiro_v1";
-
-type PedidoParaFinanceiro = {
-  id: string;
-  descricao: string;
-  valor: number;
-  cliente?: string;
-  data?: string;
-  meioPagamento?: string;
-};
 
 // 🔁 estrutura alinhada com a tela Financeiro
 type FinanceiroEntry = {
@@ -125,7 +134,7 @@ type FinanceiroEntry = {
   forma: string; // ex: Pix, Crédito
   valor: number;
   observacoes?: string;
-  origemPedidoId?: string;
+  origemPedidoId?: string; // aqui vamos usar id único por parcela
   clienteNome?: string;
   createdAt: string;
   updatedAt: string;
@@ -142,7 +151,7 @@ const STATUS_PEDIDO_META: { v: StatusPedido; label: string }[] = [
 
 const ORIGEM_LABEL: Record<Origem, string> = {
   instagram: "Instagram",
-  facebook: "Facebook", // ✅ ADICIONADO
+  facebook: "Facebook",
   whatsapp: "WhatsApp",
   indicacao: "Indicação",
   site: "Site",
@@ -152,7 +161,7 @@ const ORIGEM_LABEL: Record<Origem, string> = {
 // type-guard origem
 const ORIGENS_VALIDAS = [
   "instagram",
-  "facebook", // ✅ ADICIONADO
+  "facebook",
   "whatsapp",
   "indicacao",
   "site",
@@ -217,15 +226,19 @@ const PEDIDOS_LISTA_COL = collection(PEDIDOS_DOC, "lista");
 const PEDIDOS_COUNTER_REF = doc(PEDIDOS_DOC, "counters", "pedidos_seq");
 
 /* ======================================================
-   ✅ FIRESTORE (Financeiro)
-   - financeiro/default/lista/{lancId}
+   ✅ FIRESTORE (Financeiro) — mesmo caminho do seu FinanceiroPage
+   - financeiro/default/lancamentos/{id}
 ====================================================== */
-const FIN_DOC = doc(db, "financeiro", "default");
-const FIN_LISTA_COL = collection(FIN_DOC, "lista");
+const FIN_ROOT = "financeiro";
+const FIN_DOC = "default";
+const FIN_SUB = "lancamentos";
+const FIN_COL = collection(db, FIN_ROOT, FIN_DOC, FIN_SUB);
+function finDocRef(id: string) {
+  return doc(db, FIN_ROOT, FIN_DOC, FIN_SUB, id);
+}
 
 /* ======================================================
    ✅ FIX: Firestore NÃO aceita undefined
-   - Remove undefined de objetos/arrays antes de setDoc/updateDoc
 ====================================================== */
 function cleanUndefinedDeep<T>(value: T): T {
   if (Array.isArray(value)) {
@@ -372,36 +385,6 @@ function norm(s: string): string {
     .replace(/\s+/g, " ");
 }
 
-// ✅ NOVO: tenta preencher produtoId nos itens quando veio só com nome
-function findProdutoByNome(produtos: Produto[], nomeItem: string): Produto | null {
-  const alvo = norm(nomeItem);
-  if (!alvo) return null;
-
-  const base = (produtos || []).filter((p) => p.ativo !== false);
-
-  const exato = base.find((p) => norm(p.nome) === alvo);
-  if (exato) return exato;
-
-  const parcial = base.find(
-    (p) => norm(p.nome).includes(alvo) || alvo.includes(norm(p.nome))
-  );
-  return parcial || null;
-}
-
-function enrichItensWithProdutoId(
-  itensIn: PedidoItem[],
-  produtosBase: Produto[]
-): PedidoItem[] {
-  const base = (produtosBase || []).filter((p) => p.ativo !== false);
-
-  return (itensIn || []).map((it) => {
-    if (it.produtoId) return it;
-    const found = findProdutoByNome(base, it.nome);
-    if (!found) return it;
-    return { ...it, produtoId: found.id, nome: found.nome || it.nome };
-  });
-}
-
 // helper para mês/competência (AAAA-MM)
 function toCompetencia(iso: string): string {
   const v = String(iso || "");
@@ -423,6 +406,32 @@ function descricaoPedidoFinanceiro(
   return nome ? `${base} • ${nome}` : base;
 }
 
+/** ✅ (opção 2) Descrição por parcela/forma */
+function descricaoPedidoFinanceiroParcela(
+  pedidoId: string,
+  nome: string | undefined,
+  numero: number | undefined,
+  forma: PedidoPagamentoForma
+): string {
+  const base = descricaoPedidoFinanceiro(pedidoId, nome, numero);
+  const label =
+    forma === "pix"
+      ? "Pix"
+      : forma === "dinheiro"
+      ? "Dinheiro"
+      : forma === "credito"
+      ? "Crédito"
+      : forma === "debito"
+      ? "Débito"
+      : forma === "boleto"
+      ? "Boleto"
+      : forma === "transferencia"
+      ? "Transferência"
+      : "Outros";
+  return `${base} • ${label}`;
+}
+
+/** ✅ Migra descrições antigas (localStorage) */
 function migrarDescricoesFinanceiroAntigas(): void {
   const lista = loadJSON<FinanceiroEntry[]>(FINANCEIRO_KEY, []);
   if (!lista.length) return;
@@ -456,77 +465,99 @@ function migrarDescricoesFinanceiroAntigas(): void {
   if (alterou) saveJSON(FINANCEIRO_KEY, novaLista);
 }
 
-function registrarReceitaDoPedido(p: PedidoParaFinanceiro): void {
+/** ✅ Upsert no Firestore do Financeiro (para aparecer na sua tela Financeiro) */
+async function upsertFinanceiroFirestore(entry: FinanceiroEntry): Promise<void> {
+  const safe = cleanUndefinedDeep(entry);
+  await setDoc(finDocRef(entry.id), safe as any, { merge: true });
+}
+
+/** ✅ (Opção 2) registra 1..N lançamentos do pedido (localStorage + Firestore) */
+async function registrarReceitasDoPedidoMulti(
+  pedidoId: string,
+  clienteNome: string | undefined,
+  dataISO: string,
+  numero: number | undefined,
+  pagamentos: PedidoPagamento[]
+): Promise<void> {
   try {
     const listaRaw = loadJSON<unknown>(FINANCEIRO_KEY, []);
     const lista: FinanceiroEntry[] = Array.isArray(listaRaw)
       ? (listaRaw as FinanceiroEntry[])
       : [];
 
-    const jaExiste = lista.some((l) => l.origemPedidoId === p.id);
-    if (jaExiste) return;
-
     const agora = new Date().toISOString();
-    const data = p.data || agora;
+    const competencia = toCompetencia(dataISO);
 
-    const lancamento: FinanceiroEntry = {
-      id: uid(),
-      data,
-      competencia: toCompetencia(data),
-      tipo: "receita",
-      status: "pago",
-      descricao: p.descricao,
-      categoria: "Vendas",
-      forma: p.meioPagamento || "Pix",
-      valor: Number(p.valor) || 0,
-      observacoes: p.cliente ? `Pedido de ${p.cliente}` : undefined,
-      origemPedidoId: p.id,
-      clienteNome: p.cliente,
-      createdAt: agora,
-      updatedAt: agora,
-    };
+    // 1) normaliza pagamentos (remove zero, arredonda, etc.)
+    const pags = (pagamentos || [])
+      .map((p) => ({
+        forma: p.forma,
+        valor: Math.max(0, Number(p.valor) || 0),
+      }))
+      .filter((p) => p.valor > 0);
 
-    const novaLista: FinanceiroEntry[] = [lancamento, ...lista];
+    if (!pags.length) return;
+
+    // 2) cria um id único por parcela pra não bloquear dedupe
+    //    origemPedidoId = `${pedidoId}__${idx}`
+    const novos: FinanceiroEntry[] = [];
+
+    for (let i = 0; i < pags.length; i++) {
+      const origemPedidoId = `${pedidoId}__${i + 1}`;
+
+      const jaExiste = lista.some((l) => l.origemPedidoId === origemPedidoId);
+      if (jaExiste) continue;
+
+      const formaLabel =
+        pags[i].forma === "pix"
+          ? "Pix"
+          : pags[i].forma === "dinheiro"
+          ? "Dinheiro"
+          : pags[i].forma === "credito"
+          ? "Crédito"
+          : pags[i].forma === "debito"
+          ? "Débito"
+          : pags[i].forma === "boleto"
+          ? "Boleto"
+          : pags[i].forma === "transferencia"
+          ? "Transferência"
+          : "Outros";
+
+      const lanc: FinanceiroEntry = {
+        id: uid(),
+        data: dataISO,
+        competencia,
+        tipo: "receita",
+        status: "pago",
+        descricao: descricaoPedidoFinanceiroParcela(
+          pedidoId,
+          clienteNome,
+          numero,
+          pags[i].forma
+        ),
+        categoria: "Vendas",
+        forma: formaLabel,
+        valor: pags[i].valor,
+        observacoes: clienteNome ? `Pedido de ${clienteNome}` : undefined,
+        origemPedidoId,
+        clienteNome,
+        createdAt: agora,
+        updatedAt: agora,
+      };
+
+      novos.push(lanc);
+    }
+
+    if (!novos.length) return;
+
+    // local
+    const novaLista: FinanceiroEntry[] = [...novos, ...lista];
     saveJSON(FINANCEIRO_KEY, novaLista);
+
+    // firestore (para refletir no /crm/financeiro)
+    await Promise.all(novos.map((n) => upsertFinanceiroFirestore(n)));
   } catch (err) {
-    console.error("Erro ao registrar receita do pedido:", err);
-  }
-}
-
-/** ✅ NOVO: registra também no Firestore (para aparecer no CRM online e/ou outro device) */
-async function registrarReceitaDoPedidoFS(
-  p: PedidoParaFinanceiro,
-  numero?: number
-): Promise<void> {
-  try {
-    const agora = new Date().toISOString();
-    const data = p.data || agora;
-
-    // id fixo para não duplicar: 1 doc por pedido
-    const ref = doc(FIN_LISTA_COL, `pedido_${p.id}`);
-
-    const lancamento: FinanceiroEntry = {
-      id: `pedido_${p.id}`,
-      data,
-      competencia: toCompetencia(data),
-      tipo: "receita",
-      status: "pago",
-      descricao:
-        p.descricao || descricaoPedidoFinanceiro(p.id, p.cliente, numero),
-      categoria: "Vendas",
-      forma: p.meioPagamento || "Pix",
-      valor: Number(p.valor) || 0,
-      observacoes: p.cliente ? `Pedido de ${p.cliente}` : undefined,
-      origemPedidoId: p.id,
-      clienteNome: p.cliente,
-      createdAt: agora,
-      updatedAt: agora,
-    };
-
-    const safe = cleanUndefinedDeep(lancamento);
-    await setDoc(ref, safe as any, { merge: true });
-  } catch (err) {
-    console.error("Erro ao registrar receita do pedido no Firestore:", err);
+    console.error("Erro ao registrar receitas do pedido (multi):", err);
   }
 }
 
@@ -572,6 +603,11 @@ export default function PedidosPage() {
   const [frete, setFrete] = useState(0);
   const [status, setStatus] = useState<StatusPedido>("rascunho");
   const [observacoes, setObservacoes] = useState("");
+
+  // ✅ OPÇÃO 2: pagamentos no modal (dividido)
+  const [pagamentos, setPagamentos] = useState<PedidoPagamento[]>([
+    { forma: "pix", valor: 0 },
+  ]);
 
   const [statusFiltro, setStatusFiltro] = useState<StatusPedido | "todos">(
     "todos"
@@ -624,44 +660,44 @@ export default function PedidosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** ✅ Se tiver pedido pago e não tiver lançamentos ainda, registra */
   useEffect(() => {
     if (!pedidos.length) return;
 
-    // ✅ quando carrega pedidos, garante que "pago" tenha receita registrada
-    pedidos.forEach((p) => {
-      if (p.status !== "pago") return;
+    (async () => {
+      for (const p of pedidos) {
+        if (p.status !== "pago") continue;
 
-      const subtotal = (p.itens || []).reduce(
-        (a, it) => a + (Number(it.preco) || 0) * (Number(it.qtd) || 0),
-        0
-      );
-      const total = Math.max(
-        0,
-        subtotal - (Number(p.desconto) || 0) + (Number(p.frete) || 0)
-      );
+        const subtotal = (p.itens || []).reduce(
+          (a, it) => a + (Number(it.preco) || 0) * (Number(it.qtd) || 0),
+          0
+        );
+        const total = Math.max(
+          0,
+          subtotal - (Number(p.desconto) || 0) + (Number(p.frete) || 0)
+        );
 
-      if (total > 0) {
-        registrarReceitaDoPedido({
-          id: p.id,
-          descricao: descricaoPedidoFinanceiro(p.id, p.clienteNome, p.numero),
-          valor: total,
-          cliente: p.clienteNome,
-          data: p.updatedAt || p.createdAt,
-        });
+        if (total <= 0) continue;
 
-        // ✅ NOVO: Firestore também
-        void registrarReceitaDoPedidoFS(
-          {
-            id: p.id,
-            descricao: descricaoPedidoFinanceiro(p.id, p.clienteNome, p.numero),
-            valor: total,
-            cliente: p.clienteNome,
-            data: p.updatedAt || p.createdAt,
-          },
-          p.numero
+        // ✅ BUG DO BUILD RESOLVIDO AQUI:
+        const pags: PedidoPagamento[] = p.pagamentos?.length
+          ? p.pagamentos
+          : [
+              {
+                forma: "pix" as PedidoPagamentoForma,
+                valor: total,
+              },
+            ];
+
+        await registrarReceitasDoPedidoMulti(
+          p.id,
+          p.clienteNome,
+          p.updatedAt || p.createdAt,
+          p.numero,
+          pags
         );
       }
-    });
+    })();
   }, [pedidos]);
 
   async function refresh(): Promise<void> {
@@ -710,7 +746,7 @@ export default function PedidosPage() {
     window.location.href = `/crm/produtos`;
   }
 
-  // ✅ NOVO: abre o PDF do pedido (rota /api/pedidos/pdf)
+  // ✅ abre o PDF do pedido (rota /api/pedidos/pdf)
   function openPedidoPDF(p: Pedido): void {
     if (typeof window === "undefined") return;
     const url = `/api/pedidos/pdf?id=${encodeURIComponent(p.id)}`;
@@ -733,6 +769,10 @@ export default function PedidosPage() {
     setFrete(0);
     setStatus("rascunho");
     setObservacoes("");
+
+    // ✅ pagamento default
+    setPagamentos([{ forma: "pix", valor: 0 }]);
+
     setOpen(true);
   }
 
@@ -829,35 +869,71 @@ export default function PedidosPage() {
     return { subtotal, total };
   }, [itens, desconto, frete]);
 
+  // ✅ soma pagamentos
+  const totalPagamentos = useMemo(() => {
+    return (pagamentos || []).reduce(
+      (acc, p) => acc + (Number(p.valor) || 0),
+      0
+    );
+  }, [pagamentos]);
+
   function validatePedido(): string {
     if (!clienteNome.trim()) return "Informe o nome do cliente.";
     if (onlyDigits(telefone).length < 10)
       return "Informe um telefone válido (com DDD).";
     if (!itens.length) return "Adicione pelo menos 1 item.";
+
+    // ✅ se status for pago, validar pagamentos
+    if (status === "pago") {
+      const pags = (pagamentos || [])
+        .map((p) => ({ ...p, valor: Math.max(0, Number(p.valor) || 0) }))
+        .filter((p) => p.valor > 0);
+
+      if (!pags.length) return "Informe pelo menos 1 pagamento (Pix/Dinheiro etc.).";
+
+      // total do pedido precisa bater com soma dos pagamentos (tolerância centavos)
+      const diff = Math.abs((totals.total || 0) - (totalPagamentos || 0));
+      if (diff > 0.01) {
+        return `Pagamentos não batem com o total. Total: ${formatBRL(
+          totals.total
+        )} | Pagamentos: ${formatBRL(totalPagamentos)}`;
+      }
+    }
+
     return "";
+  }
+
+  // ✅ pagamentos UI helpers
+  function addPagamento(): void {
+    setPagamentos((prev) => [
+      ...(prev || []),
+      { forma: "dinheiro", valor: 0 },
+    ]);
+  }
+  function removePagamento(idx: number): void {
+    setPagamentos((prev) => (prev || []).filter((_, i) => i !== idx));
+  }
+  function updatePagamento(idx: number, patch: Partial<PedidoPagamento>): void {
+    setPagamentos((prev) =>
+      (prev || []).map((p, i) => (i === idx ? { ...p, ...patch } : p))
+    );
   }
 
   async function savePedido(): Promise<void> {
     try {
       const err = validatePedido();
       if (err) {
-        toast(`⚠️ ${err}`, 2400);
+        toast(`⚠️ ${err}`, 2600);
         return;
       }
 
       const now = new Date().toISOString();
-
-      // ✅ normaliza e tenta completar produtoId por nome (para baixar estoque e integrar certo)
-      const itensNormalizadosBase = itens.map((x) => ({
+      const itensNormalizados = itens.map((x) => ({
         produtoId: x.produtoId,
         nome: String(x.nome).trim(),
         qtd: Math.max(1, Number(x.qtd) || 1),
         preco: Math.max(0, Number(x.preco) || 0),
       }));
-      const itensNormalizados = enrichItensWithProdutoId(
-        itensNormalizadosBase,
-        produtos
-      );
 
       const descontoNum = Math.max(0, Number(desconto) || 0);
       const freteNum = Math.max(0, Number(frete) || 0);
@@ -870,6 +946,16 @@ export default function PedidosPage() {
 
       const pedidoId = uid();
       const numeroPedido = await nextPedidoNumeroFS();
+
+      const pags: PedidoPagamento[] =
+        status === "pago"
+          ? (pagamentos || [])
+              .map((p) => ({
+                forma: p.forma,
+                valor: Math.max(0, Number(p.valor) || 0),
+              }))
+              .filter((p) => p.valor > 0)
+          : [];
 
       const p: Pedido = {
         id: pedidoId,
@@ -886,6 +972,7 @@ export default function PedidosPage() {
         updatedAt: now,
         observacoes: observacoes.trim() || undefined,
         estoqueBaixado: false,
+        pagamentos: pags.length ? pags : undefined,
       };
 
       if (shouldBaixarEstoque(p.status)) {
@@ -893,17 +980,24 @@ export default function PedidosPage() {
         p.estoqueBaixado = true;
       }
 
+      // ✅ FINANCEIRO (opção 2)
       if (p.status === "pago" && total > 0) {
-        const payload = {
-          id: p.id,
-          descricao: descricaoPedidoFinanceiro(p.id, p.clienteNome, p.numero),
-          valor: total,
-          cliente: p.clienteNome,
-          data: p.createdAt,
-        };
+        const pagsFinal: PedidoPagamento[] = p.pagamentos?.length
+          ? p.pagamentos
+          : [
+              {
+                forma: "pix" as PedidoPagamentoForma,
+                valor: total,
+              },
+            ];
 
-        registrarReceitaDoPedido(payload);
-        await registrarReceitaDoPedidoFS(payload, p.numero);
+        await registrarReceitasDoPedidoMulti(
+          p.id,
+          p.clienteNome,
+          p.createdAt,
+          p.numero,
+          pagsFinal
+        );
       }
 
       await savePedidoToFirestore(p);
@@ -936,10 +1030,7 @@ export default function PedidosPage() {
       const next = pedidos.map((p) => {
         if (p.id !== id) return p;
 
-        // ✅ NOVO: ao mudar status, tenta enriquecer itens com produtoId (garante baixa/devolução)
-        const itensEnriquecidos = enrichItensWithProdutoId(p.itens || [], produtos);
-
-        const updated: Pedido = { ...p, itens: itensEnriquecidos, status: st, updatedAt };
+        const updated: Pedido = { ...p, status: st, updatedAt };
 
         const baixado = Boolean(updated.estoqueBaixado);
 
@@ -955,6 +1046,7 @@ export default function PedidosPage() {
 
         syncLeadStatusFromPedido(updated);
 
+        // ✅ FINANCEIRO quando vira pago (opção 2)
         if (st === "pago") {
           const subtotal = (updated.itens || []).reduce(
             (a, it) => a + (Number(it.preco) || 0) * (Number(it.qtd) || 0),
@@ -968,20 +1060,28 @@ export default function PedidosPage() {
           );
 
           if (total > 0) {
-            const payload = {
-              id: updated.id,
-              descricao: descricaoPedidoFinanceiro(
-                updated.id,
-                updated.clienteNome,
-                updated.numero
-              ),
-              valor: total,
-              cliente: updated.clienteNome,
-              data: updated.updatedAt,
-            };
+            // ✅ BUG DO BUILD RESOLVIDO (tipagem correta)
+            const pags: PedidoPagamento[] = updated.pagamentos?.length
+              ? updated.pagamentos
+              : [
+                  {
+                    forma: "pix" as PedidoPagamentoForma,
+                    valor: total,
+                  },
+                ];
 
-            registrarReceitaDoPedido(payload);
-            void registrarReceitaDoPedidoFS(payload, updated.numero);
+            // se não tinha pagamentos, grava no pedido (pra ficar salvo)
+            if (!updated.pagamentos?.length) {
+              updated.pagamentos = pags;
+            }
+
+            void registrarReceitasDoPedidoMulti(
+              updated.id,
+              updated.clienteNome,
+              updated.updatedAt,
+              updated.numero,
+              pags
+            );
           }
         }
 
@@ -991,11 +1091,12 @@ export default function PedidosPage() {
       setPedidos(next);
 
       const updatedPedido = next.find((p) => p.id === id);
+
       await updatePedidoInFirestore(id, {
         status: st,
         updatedAt,
         estoqueBaixado: updatedPedido?.estoqueBaixado,
-        itens: updatedPedido?.itens, // ✅ garante que produtoId enriquecido vai pro Firestore
+        pagamentos: updatedPedido?.pagamentos,
       });
 
       setLeads(loadJSON<Lead[]>(LEADS_KEY, []));
@@ -1057,7 +1158,7 @@ export default function PedidosPage() {
     }
   }
 
-  // ✅ NOVO: abrir edição do pedido (pra alterar origem/tipo de contato)
+  // ✅ abrir edição do pedido (pra alterar origem/tipo de contato)
   function openEditPedido(p: Pedido): void {
     setEditId(p.id);
     setEditClienteNome(p.clienteNome || "");
@@ -1148,10 +1249,6 @@ export default function PedidosPage() {
 
   return (
     <main className="page">
-      {/* ===========================
-          ✅ SEU JSX INTACTO
-          (nada estrutural foi mexido)
-      ============================ */}
       <header className="head">
         <div>
           <div className="kicker">Maison Noor</div>
@@ -1330,7 +1427,6 @@ export default function PedidosPage() {
                           WhatsApp
                         </button>
 
-                        {/* ✅ NOVO BOTÃO EDITAR (não remove nada) */}
                         <button
                           className="btnSmall"
                           onClick={() => openEditPedido(p)}
@@ -1340,7 +1436,6 @@ export default function PedidosPage() {
                           Editar
                         </button>
 
-                        {/* ✅ BOTÃO PDF */}
                         <button
                           className="btnSmall"
                           onClick={() => openPedidoPDF(p)}
@@ -1397,7 +1492,7 @@ export default function PedidosPage() {
         </div>
       </section>
 
-      {/* ✅ MODAL EDITAR PEDIDO (novo, sem mexer no modal de criação) */}
+      {/* ✅ MODAL EDITAR PEDIDO */}
       {editOpen ? (
         <div className="modalOverlay" role="dialog" aria-modal="true">
           <div className="modal">
@@ -1609,6 +1704,74 @@ export default function PedidosPage() {
                   value={observacoes}
                   onChange={(e) => setObservacoes(e.target.value)}
                 />
+
+                {/* ✅ OPÇÃO 2: Pagamentos (aparece quando status = pago) */}
+                {status === "pago" ? (
+                  <div style={{ marginTop: 12 }}>
+                    <div className="boxTitle" style={{ marginBottom: 8 }}>
+                      Pagamentos (dividido)
+                    </div>
+
+                    {(pagamentos || []).map((pg, idx) => (
+                      <div className="row3" key={`pg_${idx}`}>
+                        <select
+                          className="select"
+                          value={pg.forma}
+                          onChange={(e) =>
+                            updatePagamento(idx, {
+                              forma: e.target.value as PedidoPagamentoForma,
+                            })
+                          }
+                        >
+                          <option value="pix">Pix</option>
+                          <option value="dinheiro">Dinheiro</option>
+                          <option value="credito">Crédito</option>
+                          <option value="debito">Débito</option>
+                          <option value="boleto">Boleto</option>
+                          <option value="transferencia">Transferência</option>
+                          <option value="outros">Outros</option>
+                        </select>
+
+                        <input
+                          className="input"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={pg.valor}
+                          onChange={(e) =>
+                            updatePagamento(idx, {
+                              valor: Number(e.target.value),
+                            })
+                          }
+                        />
+
+                        <button
+                          className="btnDanger"
+                          type="button"
+                          onClick={() => removePagamento(idx)}
+                          disabled={(pagamentos || []).length <= 1}
+                          style={
+                            (pagamentos || []).length <= 1
+                              ? { opacity: 0.5, cursor: "not-allowed" }
+                              : undefined
+                          }
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    ))}
+
+                    <div className="modalActions" style={{ justifyContent: "space-between" }}>
+                      <button className="btnSmall" type="button" onClick={addPagamento}>
+                        + Adicionar forma
+                      </button>
+                      <div className="meta" style={{ textAlign: "right" }}>
+                        Pagamentos: <b>{formatBRL(totalPagamentos)}</b> • Total:{" "}
+                        <b>{formatBRL(totals.total)}</b>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <div className="box">
@@ -1765,7 +1928,6 @@ export default function PedidosPage() {
       ) : null}
 
       <style jsx>{`
-        /* SEU CSS INTACTO (não mexi) */
         .page {
           padding: 24px;
         }
@@ -1859,7 +2021,6 @@ export default function PedidosPage() {
           color: #f2f2f2;
         }
 
-        /* ✅ FIX: botões não “achatam” e mantêm altura */
         .btnSmall {
           padding: 10px 12px;
           border-radius: 12px;
@@ -1974,7 +2135,6 @@ export default function PedidosPage() {
           background: rgba(0, 0, 0, 0.14);
         }
 
-        /* ✅ FIX: largura mínima maior pra não “sumir” WhatsApp/Remover */
         .table {
           width: 100%;
           border-collapse: collapse;
@@ -1996,7 +2156,6 @@ export default function PedidosPage() {
           white-space: nowrap;
         }
 
-        /* ✅ FIX PRINCIPAL: coluna de Ações com espaço real pros 4/5 botões */
         .thActions,
         .tdActions {
           min-width: 520px;
@@ -2043,7 +2202,6 @@ export default function PedidosPage() {
           outline: none;
         }
 
-        /* ✅ FIX: não “espreme” e não manda botão pra fora */
         .actions {
           display: flex;
           gap: 10px;
@@ -2180,17 +2338,14 @@ export default function PedidosPage() {
         }
         .row3 {
           display: grid;
-          grid-template-columns: 1fr 90px 140px 140px;
+          grid-template-columns: 1fr 140px 140px;
           gap: 8px;
           align-items: end;
           margin-top: 8px;
         }
         @media (max-width: 900px) {
           .row3 {
-            grid-template-columns: 1fr 90px 140px;
-          }
-          .row3 button {
-            grid-column: 1 / -1;
+            grid-template-columns: 1fr;
           }
         }
         .itemsList {
