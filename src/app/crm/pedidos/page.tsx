@@ -14,6 +14,7 @@ import {
   runTransaction,
   setDoc,
   updateDoc,
+  where, // ✅ NOVO (para remover financeiro do pedido)
 } from "firebase/firestore";
 
 type Origem =
@@ -227,11 +228,8 @@ const PEDIDOS_COUNTER_REF = doc(PEDIDOS_DOC, "counters", "pedidos_seq");
 
 /* ======================================================
    ✅ FIRESTORE (Financeiro)
-   ⚠️ FIX IMPORTANTE: como você disse que "no código anterior alimentava",
-   pode existir 2 nomes de subcoleção dependendo da versão do FinanceiroPage.
-   Então aqui gravamos em:
-   - financeiro/default/lancamentos/{id}  ✅ (seu atual)
-   - financeiro/default/lista/{id}        ✅ (compatibilidade com versões antigas)
+   - financeiro/default/lancamentos/{id}  ✅ atual
+   - financeiro/default/lista/{id}        ✅ compat antigo
 ====================================================== */
 const FIN_ROOT = "financeiro";
 const FIN_DOC = "default";
@@ -478,12 +476,11 @@ function migrarDescricoesFinanceiroAntigas(): void {
 
 /**
  * ✅ Upsert no Firestore do Financeiro
- * FIX: grava na coleção atual + coleção compat (caso seu FinanceiroPage esteja lendo a antiga)
+ * grava na coleção atual + coleção compat
  */
 async function upsertFinanceiroFirestore(entry: FinanceiroEntry): Promise<void> {
   const safe = cleanUndefinedDeep(entry);
 
-  // tenta os dois caminhos em paralelo
   await Promise.allSettled([
     setDoc(finDocRefAtual(entry.id), safe as any, { merge: true }),
     setDoc(finDocRefCompat(entry.id), safe as any, { merge: true }),
@@ -492,7 +489,7 @@ async function upsertFinanceiroFirestore(entry: FinanceiroEntry): Promise<void> 
 
 /**
  * ✅ (Opção 2) registra 1..N lançamentos do pedido (localStorage + Firestore)
- * FIX: não “engole” erro silencioso — retorna boolean para você perceber no console/fluxo
+ * retorna boolean
  */
 async function registrarReceitasDoPedidoMulti(
   pedidoId: string,
@@ -526,7 +523,9 @@ async function registrarReceitasDoPedidoMulti(
     for (let i = 0; i < pags.length; i++) {
       const origemPedidoId = `${pedidoId}__${i + 1}`;
 
-      const jaExisteLocal = lista.some((l) => l.origemPedidoId === origemPedidoId);
+      const jaExisteLocal = lista.some(
+        (l) => l.origemPedidoId === origemPedidoId
+      );
       if (jaExisteLocal) continue;
 
       const formaLabel =
@@ -605,6 +604,49 @@ function firebaseCode(err: unknown): string | null {
   }
 }
 
+/* ======================================================
+   ✅ NOVO: remover lançamentos do Financeiro por pedido
+   - remove localStorage (origemPedidoId começa com `${pedidoId}`)
+   - remove Firestore nas duas coleções (lancamentos e lista)
+====================================================== */
+async function removerFinanceiroDoPedido(pedidoId: string): Promise<void> {
+  // 1) localStorage
+  const lista = loadJSON<FinanceiroEntry[]>(FINANCEIRO_KEY, []);
+  if (Array.isArray(lista) && lista.length) {
+    const filtrada = lista.filter(
+      (l) => !String(l.origemPedidoId || "").startsWith(pedidoId)
+    );
+    if (filtrada.length !== lista.length) saveJSON(FINANCEIRO_KEY, filtrada);
+  }
+
+  // 2) firestore atual
+  try {
+    const q1 = query(
+      FIN_COL_ATUAL,
+      where("origemPedidoId", ">=", pedidoId),
+      where("origemPedidoId", "<=", pedidoId + "\uf8ff")
+    );
+    const snap1 = await getDocs(q1);
+    await Promise.all(snap1.docs.map((d) => deleteDoc(d.ref)));
+  } catch (e) {
+    // não quebra o fluxo
+    console.warn("Falha ao remover financeiro (lancamentos):", e);
+  }
+
+  // 3) firestore compat
+  try {
+    const q2 = query(
+      FIN_COL_COMPAT,
+      where("origemPedidoId", ">=", pedidoId),
+      where("origemPedidoId", "<=", pedidoId + "\uf8ff")
+    );
+    const snap2 = await getDocs(q2);
+    await Promise.all(snap2.docs.map((d) => deleteDoc(d.ref)));
+  } catch (e) {
+    console.warn("Falha ao remover financeiro (lista):", e);
+  }
+}
+
 export default function PedidosPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
@@ -638,7 +680,7 @@ export default function PedidosPage() {
   );
   const [q, setQ] = useState("");
 
-  // ✅ NOVO: edição de pedido (para alterar tipo de contato/origem, nome, telefone, observações)
+  // ✅ NOVO: edição de pedido
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState<string>("");
   const [editClienteNome, setEditClienteNome] = useState("");
@@ -684,44 +726,12 @@ export default function PedidosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** ✅ Se tiver pedido pago e não tiver lançamentos ainda, registra */
-  useEffect(() => {
-    if (!pedidos.length) return;
-
-    (async () => {
-      for (const p of pedidos) {
-        if (p.status !== "pago") continue;
-
-        const subtotal = (p.itens || []).reduce(
-          (a, it) => a + (Number(it.preco) || 0) * (Number(it.qtd) || 0),
-          0
-        );
-        const total = Math.max(
-          0,
-          subtotal - (Number(p.desconto) || 0) + (Number(p.frete) || 0)
-        );
-
-        if (total <= 0) continue;
-
-        const pags: PedidoPagamento[] = p.pagamentos?.length
-          ? p.pagamentos
-          : [
-              {
-                forma: "pix" as PedidoPagamentoForma,
-                valor: total,
-              },
-            ];
-
-        await registrarReceitasDoPedidoMulti(
-          p.id,
-          p.clienteNome,
-          p.updatedAt || p.createdAt,
-          p.numero,
-          pags
-        );
-      }
-    })();
-  }, [pedidos]);
+  /* ======================================================
+     ✅ FIX CRÍTICO: REMOVIDO o useEffect que varria pedidos pagos
+     e re-registrava financeiro toda vez que "pedidos" mudava.
+     Isso era a causa mais comum de duplicação.
+  ====================================================== */
+  // ❌ removido
 
   async function refresh(): Promise<void> {
     setLeads(loadJSON<Lead[]>(LEADS_KEY, []));
@@ -912,7 +922,8 @@ export default function PedidosPage() {
         .map((p) => ({ ...p, valor: Math.max(0, Number(p.valor) || 0) }))
         .filter((p) => p.valor > 0);
 
-      if (!pags.length) return "Informe pelo menos 1 pagamento (Pix/Dinheiro etc.).";
+      if (!pags.length)
+        return "Informe pelo menos 1 pagamento (Pix/Dinheiro etc.).";
 
       // total do pedido precisa bater com soma dos pagamentos (tolerância centavos)
       const diff = Math.abs((totals.total || 0) - (totalPagamentos || 0));
@@ -1004,7 +1015,6 @@ export default function PedidosPage() {
       }
 
       // ✅ FINANCEIRO (opção 2)
-      // FIX: garantimos que grava nos 2 caminhos do Firestore (lancamentos + lista)
       if (p.status === "pago" && total > 0) {
         const pagsFinal: PedidoPagamento[] = p.pagamentos?.length
           ? p.pagamentos
@@ -1024,8 +1034,10 @@ export default function PedidosPage() {
         );
 
         if (!okFin) {
-          // não bloqueia salvar pedido, mas avisa
-          toast("⚠️ Pedido salvo, mas não consegui registrar no Financeiro (ver console F12).", 3200);
+          toast(
+            "⚠️ Pedido salvo, mas não consegui registrar no Financeiro (ver console F12).",
+            3200
+          );
         }
       }
 
@@ -1059,6 +1071,7 @@ export default function PedidosPage() {
       const next = pedidos.map((p) => {
         if (p.id !== id) return p;
 
+        const prevStatus = p.status; // ✅ NOVO: precisamos saber se saiu de "pago"
         const updated: Pedido = { ...p, status: st, updatedAt };
 
         const baixado = Boolean(updated.estoqueBaixado);
@@ -1075,7 +1088,9 @@ export default function PedidosPage() {
 
         syncLeadStatusFromPedido(updated);
 
-        // ✅ FINANCEIRO quando vira pago (opção 2)
+        // ✅ FINANCEIRO: regra clara (sem duplicar)
+        // - se virou pago => registra (idempotente no localStorage por origemPedidoId)
+        // - se saiu de pago => remove todos lançamentos desse pedido
         if (st === "pago") {
           const subtotal = (updated.itens || []).reduce(
             (a, it) => a + (Number(it.preco) || 0) * (Number(it.qtd) || 0),
@@ -1098,7 +1113,6 @@ export default function PedidosPage() {
                   },
                 ];
 
-            // se não tinha pagamentos, grava no pedido (pra ficar salvo)
             if (!updated.pagamentos?.length) {
               updated.pagamentos = pags;
             }
@@ -1110,6 +1124,11 @@ export default function PedidosPage() {
               updated.numero,
               pags
             );
+          }
+        } else {
+          // ✅ se antes era pago e agora não é mais => remove financeiro
+          if (prevStatus === "pago") {
+            void removerFinanceiroDoPedido(updated.id);
           }
         }
 
@@ -1165,6 +1184,10 @@ export default function PedidosPage() {
       ajustarEstoquePorPedido(p, "devolver");
     }
 
+    // ✅ opcional: se deletar pedido, também remove financeiro relacionado (se houver)
+    // (mesmo estando em rascunho/aguardando, pode ter virado pago e depois voltou)
+    void removerFinanceiroDoPedido(p.id);
+
     try {
       await deletePedidoFromFirestore(id);
 
@@ -1186,7 +1209,7 @@ export default function PedidosPage() {
     }
   }
 
-  // ✅ abrir edição do pedido (pra alterar origem/tipo de contato)
+  // ✅ abrir edição do pedido
   function openEditPedido(p: Pedido): void {
     setEditId(p.id);
     setEditClienteNome(p.clienteNome || "");
