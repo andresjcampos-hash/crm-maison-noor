@@ -226,15 +226,26 @@ const PEDIDOS_LISTA_COL = collection(PEDIDOS_DOC, "lista");
 const PEDIDOS_COUNTER_REF = doc(PEDIDOS_DOC, "counters", "pedidos_seq");
 
 /* ======================================================
-   ✅ FIRESTORE (Financeiro) — mesmo caminho do seu FinanceiroPage
-   - financeiro/default/lancamentos/{id}
+   ✅ FIRESTORE (Financeiro)
+   ⚠️ FIX IMPORTANTE: como você disse que "no código anterior alimentava",
+   pode existir 2 nomes de subcoleção dependendo da versão do FinanceiroPage.
+   Então aqui gravamos em:
+   - financeiro/default/lancamentos/{id}  ✅ (seu atual)
+   - financeiro/default/lista/{id}        ✅ (compatibilidade com versões antigas)
 ====================================================== */
 const FIN_ROOT = "financeiro";
 const FIN_DOC = "default";
-const FIN_SUB = "lancamentos";
-const FIN_COL = collection(db, FIN_ROOT, FIN_DOC, FIN_SUB);
-function finDocRef(id: string) {
-  return doc(db, FIN_ROOT, FIN_DOC, FIN_SUB, id);
+const FIN_SUB_ATUAL = "lancamentos";
+const FIN_SUB_COMPAT = "lista"; // ✅ compat antigo
+
+const FIN_COL_ATUAL = collection(db, FIN_ROOT, FIN_DOC, FIN_SUB_ATUAL);
+const FIN_COL_COMPAT = collection(db, FIN_ROOT, FIN_DOC, FIN_SUB_COMPAT);
+
+function finDocRefAtual(id: string) {
+  return doc(db, FIN_ROOT, FIN_DOC, FIN_SUB_ATUAL, id);
+}
+function finDocRefCompat(id: string) {
+  return doc(db, FIN_ROOT, FIN_DOC, FIN_SUB_COMPAT, id);
 }
 
 /* ======================================================
@@ -465,20 +476,31 @@ function migrarDescricoesFinanceiroAntigas(): void {
   if (alterou) saveJSON(FINANCEIRO_KEY, novaLista);
 }
 
-/** ✅ Upsert no Firestore do Financeiro (para aparecer na sua tela Financeiro) */
+/**
+ * ✅ Upsert no Firestore do Financeiro
+ * FIX: grava na coleção atual + coleção compat (caso seu FinanceiroPage esteja lendo a antiga)
+ */
 async function upsertFinanceiroFirestore(entry: FinanceiroEntry): Promise<void> {
   const safe = cleanUndefinedDeep(entry);
-  await setDoc(finDocRef(entry.id), safe as any, { merge: true });
+
+  // tenta os dois caminhos em paralelo
+  await Promise.allSettled([
+    setDoc(finDocRefAtual(entry.id), safe as any, { merge: true }),
+    setDoc(finDocRefCompat(entry.id), safe as any, { merge: true }),
+  ]);
 }
 
-/** ✅ (Opção 2) registra 1..N lançamentos do pedido (localStorage + Firestore) */
+/**
+ * ✅ (Opção 2) registra 1..N lançamentos do pedido (localStorage + Firestore)
+ * FIX: não “engole” erro silencioso — retorna boolean para você perceber no console/fluxo
+ */
 async function registrarReceitasDoPedidoMulti(
   pedidoId: string,
   clienteNome: string | undefined,
   dataISO: string,
   numero: number | undefined,
   pagamentos: PedidoPagamento[]
-): Promise<void> {
+): Promise<boolean> {
   try {
     const listaRaw = loadJSON<unknown>(FINANCEIRO_KEY, []);
     const lista: FinanceiroEntry[] = Array.isArray(listaRaw)
@@ -488,7 +510,7 @@ async function registrarReceitasDoPedidoMulti(
     const agora = new Date().toISOString();
     const competencia = toCompetencia(dataISO);
 
-    // 1) normaliza pagamentos (remove zero, arredonda, etc.)
+    // 1) normaliza pagamentos
     const pags = (pagamentos || [])
       .map((p) => ({
         forma: p.forma,
@@ -496,17 +518,16 @@ async function registrarReceitasDoPedidoMulti(
       }))
       .filter((p) => p.valor > 0);
 
-    if (!pags.length) return;
+    if (!pags.length) return false;
 
-    // 2) cria um id único por parcela pra não bloquear dedupe
-    //    origemPedidoId = `${pedidoId}__${idx}`
+    // 2) cria um id único por parcela
     const novos: FinanceiroEntry[] = [];
 
     for (let i = 0; i < pags.length; i++) {
       const origemPedidoId = `${pedidoId}__${i + 1}`;
 
-      const jaExiste = lista.some((l) => l.origemPedidoId === origemPedidoId);
-      if (jaExiste) continue;
+      const jaExisteLocal = lista.some((l) => l.origemPedidoId === origemPedidoId);
+      if (jaExisteLocal) continue;
 
       const formaLabel =
         pags[i].forma === "pix"
@@ -548,16 +569,19 @@ async function registrarReceitasDoPedidoMulti(
       novos.push(lanc);
     }
 
-    if (!novos.length) return;
+    if (!novos.length) return false;
 
     // local
     const novaLista: FinanceiroEntry[] = [...novos, ...lista];
     saveJSON(FINANCEIRO_KEY, novaLista);
 
-    // firestore (para refletir no /crm/financeiro)
+    // firestore
     await Promise.all(novos.map((n) => upsertFinanceiroFirestore(n)));
+
+    return true;
   } catch (err) {
     console.error("Erro ao registrar receitas do pedido (multi):", err);
+    return false;
   }
 }
 
@@ -679,7 +703,6 @@ export default function PedidosPage() {
 
         if (total <= 0) continue;
 
-        // ✅ BUG DO BUILD RESOLVIDO AQUI:
         const pags: PedidoPagamento[] = p.pagamentos?.length
           ? p.pagamentos
           : [
@@ -981,6 +1004,7 @@ export default function PedidosPage() {
       }
 
       // ✅ FINANCEIRO (opção 2)
+      // FIX: garantimos que grava nos 2 caminhos do Firestore (lancamentos + lista)
       if (p.status === "pago" && total > 0) {
         const pagsFinal: PedidoPagamento[] = p.pagamentos?.length
           ? p.pagamentos
@@ -991,13 +1015,18 @@ export default function PedidosPage() {
               },
             ];
 
-        await registrarReceitasDoPedidoMulti(
+        const okFin = await registrarReceitasDoPedidoMulti(
           p.id,
           p.clienteNome,
           p.createdAt,
           p.numero,
           pagsFinal
         );
+
+        if (!okFin) {
+          // não bloqueia salvar pedido, mas avisa
+          toast("⚠️ Pedido salvo, mas não consegui registrar no Financeiro (ver console F12).", 3200);
+        }
       }
 
       await savePedidoToFirestore(p);
@@ -1060,7 +1089,6 @@ export default function PedidosPage() {
           );
 
           if (total > 0) {
-            // ✅ BUG DO BUILD RESOLVIDO (tipagem correta)
             const pags: PedidoPagamento[] = updated.pagamentos?.length
               ? updated.pagamentos
               : [
@@ -1761,8 +1789,15 @@ export default function PedidosPage() {
                       </div>
                     ))}
 
-                    <div className="modalActions" style={{ justifyContent: "space-between" }}>
-                      <button className="btnSmall" type="button" onClick={addPagamento}>
+                    <div
+                      className="modalActions"
+                      style={{ justifyContent: "space-between" }}
+                    >
+                      <button
+                        className="btnSmall"
+                        type="button"
+                        onClick={addPagamento}
+                      >
                         + Adicionar forma
                       </button>
                       <div className="meta" style={{ textAlign: "right" }}>
