@@ -89,6 +89,11 @@ type Pedido = {
   desconto: number;
   frete: number;
   status: StatusPedido;
+
+  // ✅ NOVO: vendedor responsável pela venda
+  vendedorId?: string;
+  vendedorNome?: string;
+  
   createdAt: string;
   updatedAt: string;
   observacoes?: string;
